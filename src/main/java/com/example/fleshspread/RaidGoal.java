@@ -145,7 +145,7 @@ public class RaidGoal extends Goal {
         LivingEntity def = nearestDefender(level, mob, type, Math.max(radius, 24.0D));
         if (def != null) return def;
         AABB box = mob.getBoundingBox().inflate(radius, 12.0D, radius);
-        List<LivingEntity> list = level.getEntitiesOfClass(LivingEntity.class, box, e -> isVictim(type, e));
+        List<LivingEntity> list = level.getEntitiesOfClass(LivingEntity.class, box, e -> isVictim(type, e) && !(mob.getPersistentData().getBoolean(InfectedRaids.FLANK) && isDefender(e)));
         LivingEntity best = null;
         double bd = Double.MAX_VALUE;
         for (LivingEntity e : list) {
@@ -178,6 +178,7 @@ public class RaidGoal extends Goal {
                 && !isFlesh(hurtBy) && mob.distanceToSqr(hurtBy) < radius * radius) {
             return hurtBy;
         }
+        if (mob.getPersistentData().getBoolean(InfectedRaids.FLANK)) return null; // прорвальник: йде до слабких цілей
         AABB box = mob.getBoundingBox().inflate(radius, 10.0D, radius);
         LivingEntity best = null;
         double bd = Double.MAX_VALUE;

@@ -58,6 +58,8 @@ public final class SpreadConfig {
     public int industryMinBlocks = 14;            // стільки блоків Create поруч = промисловий об'єкт
     public int industryBreakBudgetPerMob = 4;     // скільки блоків Create може зламати один рейдер
     public boolean raidAnnounce = true;
+    /** Частка рейдерів-«прорвальників» (ідуть повз захисників до слабких цілей); діє, якщо рейдерів не менше 6. */
+    public double raidBreakthroughShare = 0.35;
     public double weightPlayer = 3.0;
     public double weightVillage = 3.0;
     public double weightBarbarian = 2.0;

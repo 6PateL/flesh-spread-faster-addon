@@ -29,6 +29,7 @@ public final class InfectedRaids {
     public static final String TY = "fs_raid_y";
     public static final String TZ = "fs_raid_z";
     public static final String BUDGET = "fs_raid_budget";
+    public static final String FLANK = "fs_raid_flank";
 
     private static final long DAY = 24000L;
 
@@ -188,6 +189,7 @@ public final class InfectedRaids {
                 d.putInt(TY, target.pos().getY());
                 d.putInt(TZ, target.pos().getZ());
                 d.putInt(BUDGET, cfg.industryBreakBudgetPerMob);
+                if (count >= 6 && level.random.nextDouble() < cfg.raidBreakthroughShare) d.putBoolean(FLANK, true);
                 if (e instanceof Mob m) attachGoal(m);
                 spawned++;
                 break;

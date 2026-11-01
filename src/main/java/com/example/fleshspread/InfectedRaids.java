@@ -201,5 +201,6 @@ public final class InfectedRaids {
             if (g.getGoal() instanceof RaidGoal) return;
         }
         mob.goalSelector.addGoal(2, new RaidGoal(mob));
+        mob.goalSelector.addGoal(1, new RaidThreatGoal(mob));
     }
 }

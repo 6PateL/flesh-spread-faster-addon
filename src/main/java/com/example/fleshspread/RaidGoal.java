@@ -142,6 +142,8 @@ public class RaidGoal extends Goal {
     }
 
     private LivingEntity nearestVictim(ServerLevel level, int type, double radius) {
+        LivingEntity def = nearestDefender(level, mob, type, Math.max(radius, 24.0D));
+        if (def != null) return def;
         AABB box = mob.getBoundingBox().inflate(radius, 12.0D, radius);
         List<LivingEntity> list = level.getEntitiesOfClass(LivingEntity.class, box, e -> isVictim(type, e));
         LivingEntity best = null;
@@ -154,6 +156,45 @@ public class RaidGoal extends Goal {
             }
         }
         return best;
+    }
+
+    /** Озброєний захисник: гравець, залізний голем, рекрут/варвар зі зброєю. */
+    public static boolean isDefender(LivingEntity e) {
+        if (e instanceof Player p) return !p.isCreative() && !p.isSpectator();
+        if (e.getType() == net.minecraft.world.entity.EntityType.IRON_GOLEM) return true;
+        var key = ForgeRegistries.ENTITY_TYPES.getKey(e.getType());
+        String ns = key == null ? "" : key.getNamespace();
+        if (!ns.equals("recruits") && !ns.equals("hostile_civilization")) return false;
+        var it = e.getMainHandItem().getItem();
+        return it instanceof net.minecraft.world.item.SwordItem || it instanceof net.minecraft.world.item.AxeItem
+                || it instanceof net.minecraft.world.item.ProjectileWeaponItem || it instanceof net.minecraft.world.item.TridentItem;
+    }
+
+    /** Найближчий захисник (пріоритет тому, хто щойно вдарив рейдера), зі стороною, що відповідає типу рейду. */
+    public static LivingEntity nearestDefender(ServerLevel level, Mob mob, int type, double radius) {
+        LivingEntity hurtBy = mob.getLastHurtByMob();
+        if (hurtBy != null && hurtBy.isAlive() && mob.tickCount - mob.getLastHurtByMobTimestamp() < 200
+                && !(hurtBy instanceof Player p && (p.isCreative() || p.isSpectator()))
+                && !isFlesh(hurtBy) && mob.distanceToSqr(hurtBy) < radius * radius) {
+            return hurtBy;
+        }
+        AABB box = mob.getBoundingBox().inflate(radius, 10.0D, radius);
+        LivingEntity best = null;
+        double bd = Double.MAX_VALUE;
+        for (LivingEntity e : level.getEntitiesOfClass(LivingEntity.class, box, x -> x != mob && x.isAlive() && !isFlesh(x) && isDefender(x))) {
+            if (type == RaidTargets.BARBARIAN && e instanceof Player) continue;
+            double dd = e.distanceToSqr(mob);
+            if (dd < bd) {
+                bd = dd;
+                best = e;
+            }
+        }
+        return best;
+    }
+
+    private static boolean isFlesh(LivingEntity e) {
+        var key = ForgeRegistries.ENTITY_TYPES.getKey(e.getType());
+        return key != null && key.getNamespace().equals("flesh_that_hates");
     }
 
     private boolean isVictim(int type, LivingEntity e) {

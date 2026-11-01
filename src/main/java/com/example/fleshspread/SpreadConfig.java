@@ -42,6 +42,39 @@ public final class SpreadConfig {
     // --- дорослішання ---
     public double ripenDays = 2.0;                // малий інкубатор -> великий через N днів (0 = вимкнено)
 
+    // --- рейди зараження ---
+    public boolean raidsEnabled = true;
+    public double raidStartDay = 2.0;             // перший рейд не раніше цього дня
+    public int raidIntervalDays = 2;              // рейд кожні N днів
+    public int raidSearchRadius = 220;            // цілі шукаємо в цьому радіусі від гравця (чанки мають бути завантажені)
+    public int raidVillageCount = 3;              // скільки найближчих поселень за один рейд
+    public int raidMobsBase = 6;
+    public double raidMobsPerDay = 0.7;
+    public int raidMobsMax = 28;
+    public int raidSpawnDistanceMin = 55;
+    public int raidSpawnDistanceMax = 80;
+    public int raidDurationSeconds = 600;         // скільки триває рейд, потім моби розходяться
+    public int pastureMinAnimals = 6;             // стільки корисних тварин поруч = пасовище
+    public int industryMinBlocks = 14;            // стільки блоків Create поруч = промисловий об'єкт
+    public int industryBreakBudgetPerMob = 4;     // скільки блоків Create може зламати один рейдер
+    public boolean raidAnnounce = true;
+    public double weightPlayer = 3.0;
+    public double weightVillage = 3.0;
+    public double weightBarbarian = 2.0;
+    public double weightPasture = 2.0;
+    public double weightIndustry = 2.0;
+
+    // --- ППО вірусу ---
+    public boolean aaEnabled = true;
+    public int aaTriggerRadius = 48;              // ТНТ ближче за стільки блоків до зараження = спроба підриву
+    public boolean aaOnlyFromAbove = true;        // реагувати тільки на ТНТ, що вище за зараження
+    public int aaCooldownSeconds = 20;
+    public int aaUnits = 2;                       // база; +1 за кожні 6 днів
+    public int aaMaxUnits = 6;
+    public int aaLifetimeSeconds = 150;
+    public int aaDeviceRadius = 14;               // де шукати роздатчики/поршні/слиз навколо ТНТ
+    public int aaBreakPerHit = 3;                 // скільки блоків знищує за один «стрибок»
+
     private static SpreadConfig instance = new SpreadConfig();
     public static SpreadConfig get() { return instance; }
 

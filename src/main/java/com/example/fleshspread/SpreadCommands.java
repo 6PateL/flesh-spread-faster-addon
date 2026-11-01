@@ -27,7 +27,41 @@ public final class SpreadCommands {
         event.getDispatcher().register(Commands.literal("flesh_spread")
                 .requires(s -> s.hasPermission(2))
                 .then(Commands.literal("seed").executes(ctx -> seed(ctx.getSource())))
+                .then(Commands.literal("raid")
+                        .then(Commands.argument("type", com.mojang.brigadier.arguments.StringArgumentType.word())
+                                .suggests((c, b) -> net.minecraft.commands.SharedSuggestionProvider.suggest(
+                                        new String[]{"player", "village", "barbarian", "pasture", "industry"}, b))
+                                .executes(ctx -> raid(ctx.getSource(),
+                                        com.mojang.brigadier.arguments.StringArgumentType.getString(ctx, "type")))))
+                .then(Commands.literal("aa").executes(ctx -> aa(ctx.getSource())))
                 .then(Commands.literal("nearest").executes(ctx -> nearest(ctx.getSource()))));
+    }
+
+    private static int raid(CommandSourceStack src, String name) throws CommandSyntaxException {
+        int type = switch (name) {
+            case "player" -> RaidTargets.PLAYER;
+            case "village" -> RaidTargets.VILLAGE;
+            case "barbarian" -> RaidTargets.BARBARIAN;
+            case "pasture" -> RaidTargets.PASTURE;
+            case "industry" -> RaidTargets.INDUSTRY;
+            default -> -1;
+        };
+        if (type < 0) {
+            src.sendFailure(Component.literal("Типи: player, village, barbarian, pasture, industry"));
+            return 0;
+        }
+        ServerPlayer player = src.getPlayerOrException();
+        int n = InfectedRaids.launchType(player.serverLevel(), SpreadConfig.get(), type, player);
+        src.sendSuccess(() -> Component.literal(n > 0 ? "Рейд запущено, інфікованих: " + n
+                : "Цілей цього типу поруч не знайдено"), false);
+        return n;
+    }
+
+    private static int aa(CommandSourceStack src) throws CommandSyntaxException {
+        ServerPlayer player = src.getPlayerOrException();
+        int n = AirDefense.spawn(player.serverLevel(), SpreadConfig.get(), player.blockPosition());
+        src.sendSuccess(() -> Component.literal("ППО: юнітів " + n), false);
+        return n;
     }
 
     private static int seed(CommandSourceStack src) throws CommandSyntaxException {

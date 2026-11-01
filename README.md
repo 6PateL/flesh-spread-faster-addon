@@ -8,3 +8,20 @@
 
 Налаштування: config/flesh_spread.json. Команди (оп): /flesh_spread seed, /flesh_spread nearest.
 Збірка: GitHub Actions -> build -> Artifacts. Потрібні Forge 47.x і Flesh That Hates.
+
+## Рейди інфікованих (кожні 2 доби, з 2-ї)
+Рейд іде на ОДНУ ціль (або-або), тип обирається за вагами `weight*` у конфігу; якщо цілей типу немає — наступний тип:
+- **player** — позиція гравця;
+- **village** — 3 найближчі поселення (пріоритет — села під фракцією гравця; через Recruits Villages, рефлексією);
+- **barbarian** — поселення варварів (з Barbarian Raids, рефлексією);
+- **pasture** — пасовище гравця (скупчення від `pastureMinAnimals` корисних тварин);
+- **industry** — промисловий об'єкт Create (від `industryMinBlocks` блоків Create + роздатчики/викидачі); рейдери ламають блоки.
+Голови рейду немає. Розмір росте з днями (`raidMobsBase`, `raidMobsPerDay`, `raidMobsMax`).
+
+## ППО вірусу
+Запалений ТНТ над зараженням (в межах `aaTriggerRadius`) викликає SCP-6107 (літає). Вони стрибками добираються до висоти
+установки (роздатчики, викидачі, поршні, блоки слизу, ТНТ) і ламають її (`aaBreakPerHit`). Живуть `aaLifetimeSeconds`.
+
+## Дебаг
+- Предмет **Зонд зараження** (творчий, Tools): ПКМ — запустити, Shift+ПКМ — змінити режим (гравець/поселення/варвари/пасовища/промисловість/ППО).
+- Команди: `/flesh_spread raid <player|village|barbarian|pasture|industry>`, `/flesh_spread aa`.

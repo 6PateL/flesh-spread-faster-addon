@@ -46,6 +46,9 @@ public final class SpreadEvents {
         if (!cfg.enabled || !cfg.dimensions.contains(level.dimension().location().toString())) return;
 
         processPending(level, cfg);
+        if (cfg.raidsEnabled && level.dimension() == net.minecraft.world.level.Level.OVERWORLD && level.getGameTime() % 100 == 0) {
+            InfectedRaids.tick(level, cfg);
+        }
 
         long t = level.getGameTime();
         if (cfg.ripenDays > 0 && t % 200 == 0) ripen(level, cfg);

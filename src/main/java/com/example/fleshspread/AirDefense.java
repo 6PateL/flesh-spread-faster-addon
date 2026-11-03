@@ -50,24 +50,58 @@ public final class AirDefense {
 
     /** Запалений ТНТ поруч зі зараженням (над ним) = спроба підриву. */
     public static void onPrimedTnt(ServerLevel level, PrimedTnt tnt) {
+        check(level, tnt.blockPosition(), true);
+    }
+
+    /** Поставлений ТНТ / слиз / роздатчик / викинутий молотов поруч зі зараженням: теж тривога (хай навіть хибна). */
+    public static void onSuspicious(ServerLevel level, BlockPos pos, boolean needAbove) {
+        check(level, pos, needAbove);
+    }
+
+    private static void check(ServerLevel level, BlockPos pos, boolean needAbove) {
         SpreadConfig cfg = SpreadConfig.get();
         if (!cfg.enabled || !cfg.aaEnabled || !cfg.dimensions.contains(level.dimension().location().toString())) return;
         long now = level.getGameTime();
         if (now - lastTrigger < cfg.aaCooldownSeconds * 20L) return;
 
         int r = cfg.aaTriggerRadius;
-        AABB box = tnt.getBoundingBox().inflate(r, 96, r);
+        AABB box = new AABB(pos).inflate(r, 96, r);
         List<Entity> infected = level.getEntities((Entity) null, box, e -> e.getType().is(FLESH_MOB));
-        boolean hit = false;
+        Entity nearest = null;
+        double best = Double.MAX_VALUE;
         for (Entity e : infected) {
-            if (!cfg.aaOnlyFromAbove || tnt.getY() >= e.getY() + 3.0D) {
-                hit = true;
-                break;
+            if (needAbove && cfg.aaOnlyFromAbove && pos.getY() < e.getY() + 3.0D) continue;
+            double d = e.distanceToSqr(pos.getX() + 0.5D, pos.getY(), pos.getZ() + 0.5D);
+            if (d < best) {
+                best = d;
+                nearest = e;
             }
         }
-        if (!hit) return;
+        if (nearest == null) return;
         lastTrigger = now;
-        spawn(level, cfg, tnt.blockPosition());
+        spawn(level, cfg, pos);
+        spawnGround(level, cfg, nearest.blockPosition());
+    }
+
+    /** Початкові істоти зі спавнера (SCP-6101 / SCP-6103 тощо) одразу вилазять із зараженої землі біля цілі. */
+    private static void spawnGround(ServerLevel level, SpreadConfig cfg, BlockPos at) {
+        String[] ids = {"scp_6101", "scp_6103", "scp_6101", "scp_6102"};
+        int made = 0;
+        for (int i = 0; i < cfg.aaGroundUnits; i++) {
+            ResourceLocation id = new ResourceLocation("flesh_that_hates", ids[i % ids.length]);
+            if (!ForgeRegistries.ENTITY_TYPES.containsKey(id)) continue;
+            EntityType<?> type = ForgeRegistries.ENTITY_TYPES.getValue(id);
+            for (int attempt = 0; attempt < 8; attempt++) {
+                BlockPos p = at.offset(level.random.nextInt(9) - 4, 0, level.random.nextInt(9) - 4);
+                p = level.getHeightmapPos(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, p);
+                if (!level.hasChunkAt(p)) continue;
+                if (type.spawn(level, p, MobSpawnType.EVENT) != null) {
+                    made++;
+                    break;
+                }
+            }
+        }
+        if (made > 0) FleshSpread.LOGGER.info("ППО вірусу: {} наземних істот біля {}", made, at.toShortString());
     }
 
     // ------------------------------------------------------------------ спавн

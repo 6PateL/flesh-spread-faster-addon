@@ -18,33 +18,28 @@ public final class RaidEvents {
         var b = event.getPlacedBlock().getBlock();
         if (b == net.minecraft.world.level.block.Blocks.TNT || b == net.minecraft.world.level.block.Blocks.SLIME_BLOCK
                 || b == net.minecraft.world.level.block.Blocks.DISPENSER || b == net.minecraft.world.level.block.Blocks.DROPPER) {
-            AirDefense.onSuspicious(level, event.getPos(), true);
+            AirDefense.onSuspicious(level, event.getPos(), false); // з землі теж: охорона зʼявляється одразу
         }
     }
 
-    /** Стартова фора: кожен спавнер SCP-610 при першому завантаженні випускає по 2 початкові істоти (один раз). */
+    /**
+     * Стартова фора: кожне гніздо (малий/великий інкубатор) і спавнер SCP-610 при першому завантаженні один раз
+     * випускає по starterPerSpawner істот SCP-610-3 (Pincher) поруч.
+     */
     @SubscribeEvent
-    public static void onSpawnerTick(net.minecraftforge.event.entity.living.LivingEvent.LivingTickEvent event) {
+    public static void onNestTick(net.minecraftforge.event.entity.living.LivingEvent.LivingTickEvent event) {
         var e = event.getEntity();
-        if (!(e.level() instanceof ServerLevel level) || e.tickCount < 20 || e.tickCount > 400 || e.tickCount % 20 != 0) return;
-        if (!net.minecraft.core.registries.BuiltInRegistries.ENTITY_TYPE.getKey(e.getType()).toString()
-                .equals("flesh_that_hates:scp_610_spawner")) return;
+        if (!(e.level() instanceof ServerLevel level) || e.tickCount < 40 || e.tickCount % 20 != 0) return;
+        if (!Nests.isIncubator(e) && !net.minecraft.core.registries.BuiltInRegistries.ENTITY_TYPE.getKey(e.getType())
+                .toString().equals("flesh_that_hates:scp_610_spawner")) return;
         var d = e.getPersistentData();
         if (d.getBoolean("fs_starter")) return;
         d.putBoolean("fs_starter", true);
         SpreadConfig cfg = SpreadConfig.get();
         if (!cfg.enabled || cfg.starterPerSpawner <= 0) return;
-        String[] ids = {"scp_6101", "scp_6103"};
-        for (int i = 0; i < cfg.starterPerSpawner; i++) {
-            var id = new net.minecraft.resources.ResourceLocation("flesh_that_hates", ids[i % ids.length]);
-            if (!net.minecraftforge.registries.ForgeRegistries.ENTITY_TYPES.containsKey(id)) continue;
-            var type = net.minecraftforge.registries.ForgeRegistries.ENTITY_TYPES.getValue(id);
-            for (int a = 0; a < 8; a++) {
-                var p = level.getHeightmapPos(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
-                        e.blockPosition().offset(level.random.nextInt(7) - 3, 0, level.random.nextInt(7) - 3));
-                if (type.spawn(level, p, net.minecraft.world.entity.MobSpawnType.EVENT) != null) break;
-            }
-        }
+        int made = AirDefense.spawnGuards(level, e.blockPosition(), cfg.starterPerSpawner, "scp_6103");
+        FleshSpread.LOGGER.info("Стартова фора: {} істот SCP-610-3 біля {} ({})", made, e.blockPosition().toShortString(),
+                net.minecraft.core.registries.BuiltInRegistries.ENTITY_TYPE.getKey(e.getType()));
     }
 
     @SubscribeEvent

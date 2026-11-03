@@ -83,25 +83,44 @@ public final class AirDefense {
         spawnGround(level, cfg, nearest.blockPosition());
     }
 
-    /** Початкові істоти зі спавнера (SCP-6101 / SCP-6103 тощо) одразу вилазять із зараженої землі біля цілі. */
+    /** Охорона: початкові істоти з землі біля цілі (одразу, без «чекання»). */
     private static void spawnGround(ServerLevel level, SpreadConfig cfg, BlockPos at) {
-        String[] ids = {"scp_6101", "scp_6103", "scp_6101", "scp_6102"};
+        String[] ids = {"scp_6103", "scp_6101", "scp_6103", "scp_6102"};
         int made = 0;
         for (int i = 0; i < cfg.aaGroundUnits; i++) {
-            ResourceLocation id = new ResourceLocation("flesh_that_hates", ids[i % ids.length]);
-            if (!ForgeRegistries.ENTITY_TYPES.containsKey(id)) continue;
-            EntityType<?> type = ForgeRegistries.ENTITY_TYPES.getValue(id);
-            for (int attempt = 0; attempt < 8; attempt++) {
+            made += spawnGuards(level, at, 1, ids[i % ids.length]);
+        }
+        FleshSpread.LOGGER.info("ППО вірусу: {} наземних істот біля {}", made, at.toShortString());
+    }
+
+    /** Спавнить n істот типу flesh_that_hates:id навколо точки (на поверхні), робить їх постійними. Повертає скільки вийшло. */
+    public static int spawnGuards(ServerLevel level, BlockPos at, int n, String idPath) {
+        ResourceLocation id = new ResourceLocation("flesh_that_hates", idPath);
+        if (!ForgeRegistries.ENTITY_TYPES.containsKey(id)) {
+            FleshSpread.LOGGER.warn("Немає істоти {}", id);
+            return 0;
+        }
+        EntityType<?> type = ForgeRegistries.ENTITY_TYPES.getValue(id);
+        int made = 0;
+        for (int i = 0; i < n; i++) {
+            for (int attempt = 0; attempt < 12; attempt++) {
                 BlockPos p = at.offset(level.random.nextInt(9) - 4, 0, level.random.nextInt(9) - 4);
                 p = level.getHeightmapPos(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, p);
                 if (!level.hasChunkAt(p)) continue;
-                if (type.spawn(level, p, MobSpawnType.EVENT) != null) {
+                Entity e = type.create(level);
+                if (e == null) continue;
+                e.moveTo(p.getX() + 0.5D, p.getY(), p.getZ() + 0.5D, level.random.nextFloat() * 360.0F, 0.0F);
+                if (e instanceof Mob m) {
+                    m.finalizeSpawn(level, level.getCurrentDifficultyAt(p), MobSpawnType.EVENT, null, null);
+                    m.setPersistenceRequired();
+                }
+                if (level.addFreshEntity(e)) {
                     made++;
                     break;
                 }
             }
         }
-        if (made > 0) FleshSpread.LOGGER.info("ППО вірусу: {} наземних істот біля {}", made, at.toShortString());
+        return made;
     }
 
     // ------------------------------------------------------------------ спавн

@@ -73,6 +73,7 @@ public final class SpreadConfig {
     public int aaCooldownSeconds = 20;
     public int aaUnits = 2;                       // база; +1 за кожні 6 днів
     public int aaMaxUnits = 6;
+    public int starterPerSpawner = 2;             // стартова фора: кожен прогружений спавнер SCP-610 один раз випускає стільки початкових істот (0 = вимкнено)
     public int aaGroundUnits = 4;                 // наземні початкові істоти (SCP-6101/6103/6102), що вилазять одразу
     public int aaLifetimeSeconds = 150;
     public int aaDeviceRadius = 14;               // де шукати роздатчики/поршні/слиз навколо ТНТ

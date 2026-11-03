@@ -22,6 +22,31 @@ public final class RaidEvents {
         }
     }
 
+    /** Стартова фора: кожен спавнер SCP-610 при першому завантаженні випускає по 2 початкові істоти (один раз). */
+    @SubscribeEvent
+    public static void onSpawnerTick(net.minecraftforge.event.entity.living.LivingEvent.LivingTickEvent event) {
+        var e = event.getEntity();
+        if (!(e.level() instanceof ServerLevel level) || e.tickCount < 20 || e.tickCount > 400 || e.tickCount % 20 != 0) return;
+        if (!net.minecraft.core.registries.BuiltInRegistries.ENTITY_TYPE.getKey(e.getType()).toString()
+                .equals("flesh_that_hates:scp_610_spawner")) return;
+        var d = e.getPersistentData();
+        if (d.getBoolean("fs_starter")) return;
+        d.putBoolean("fs_starter", true);
+        SpreadConfig cfg = SpreadConfig.get();
+        if (!cfg.enabled || cfg.starterPerSpawner <= 0) return;
+        String[] ids = {"scp_6101", "scp_6103"};
+        for (int i = 0; i < cfg.starterPerSpawner; i++) {
+            var id = new net.minecraft.resources.ResourceLocation("flesh_that_hates", ids[i % ids.length]);
+            if (!net.minecraftforge.registries.ForgeRegistries.ENTITY_TYPES.containsKey(id)) continue;
+            var type = net.minecraftforge.registries.ForgeRegistries.ENTITY_TYPES.getValue(id);
+            for (int a = 0; a < 8; a++) {
+                var p = level.getHeightmapPos(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
+                        e.blockPosition().offset(level.random.nextInt(7) - 3, 0, level.random.nextInt(7) - 3));
+                if (type.spawn(level, p, net.minecraft.world.entity.MobSpawnType.EVENT) != null) break;
+            }
+        }
+    }
+
     @SubscribeEvent
     public static void onJoin(EntityJoinLevelEvent event) {
         if (event.getLevel().isClientSide() || !(event.getLevel() instanceof ServerLevel level)) return;

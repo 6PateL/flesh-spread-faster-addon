@@ -55,6 +55,13 @@ public final class RaidEvents {
     @SubscribeEvent
     public static void onJoin(EntityJoinLevelEvent event) {
         if (event.getLevel().isClientSide() || !(event.getLevel() instanceof ServerLevel level)) return;
+        if (event.getEntity() instanceof net.minecraft.world.entity.projectile.Projectile fire
+                && fire.getOwner() instanceof net.minecraft.server.level.ServerPlayer
+                && net.minecraft.core.registries.BuiltInRegistries.ENTITY_TYPE.getKey(fire.getType()).toString()
+                        .equals("fromanotherworld:flamethrower_fire")) {
+            AirDefense.onSuspicious(level, fire.blockPosition(), false); // вогнемет поруч: охорона вірусу
+            return;
+        }
         if (event.getEntity() instanceof PrimedTnt tnt) {
             AirDefense.onPrimedTnt(level, tnt);
             return;

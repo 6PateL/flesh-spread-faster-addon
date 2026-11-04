@@ -12,6 +12,16 @@ import net.minecraftforge.fml.common.Mod;
 public final class RaidEvents {
     private RaidEvents() {}
 
+    /** Вогнемет у руках гравця поруч зі зараженням (раз на секунду): тривога, як від ТНТ. */
+    @SubscribeEvent
+    public static void onFlamethrower(net.minecraftforge.event.entity.living.LivingEntityUseItemEvent.Tick event) {
+        if (!(event.getEntity() instanceof net.minecraft.server.level.ServerPlayer player)
+                || !(player.level() instanceof ServerLevel level) || event.getDuration() % 20 != 0) return;
+        if (!net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(event.getItem().getItem()).toString()
+                .equals("fromanotherworld:flamethrower_mk_1")) return;
+        AirDefense.onSuspicious(level, player.blockPosition(), false);
+    }
+
     @SubscribeEvent
     public static void onPlace(net.minecraftforge.event.level.BlockEvent.EntityPlaceEvent event) {
         if (!(event.getLevel() instanceof ServerLevel level)) return;

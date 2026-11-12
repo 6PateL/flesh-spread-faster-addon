@@ -57,14 +57,43 @@ public final class InfectedRaids {
         }
         if (now < data.next) return;
 
+        if (data.untilStrong < 0) data.untilStrong = rollStrong(level.random, cfg);
+        boolean strong = data.untilStrong == 0;
         List<Integer> order = weightedOrder(level.random, cfg);
         int launched = 0;
         for (int type : order) {
-            launched = launchType(level, cfg, type, null);
+            launched = launchType(level, cfg, type, null, strong);
             if (launched > 0) break;
         }
-        data.next = now + (launched > 0 ? Math.max(1, cfg.raidIntervalDays) * DAY : 6000L);
+        if (launched > 0) {
+            data.untilStrong = strong ? rollStrong(level.random, cfg) : data.untilStrong - 1;
+            FleshSpread.LOGGER.info("Рейд зараження запущено: посилений={}, звичайних до наступного посиленого: {}", strong, data.untilStrong);
+        }
+        data.next = now + (launched > 0 ? interval(level.random, cfg) : 6000L);
         data.setDirty();
+    }
+
+    /** Випадковий момент між min і max днів (не ціле число днів). */
+    static long interval(RandomSource random, SpreadConfig cfg) {
+        long min = Math.max(1, Math.min(cfg.raidIntervalMinDays, cfg.raidIntervalMaxDays)) * DAY;
+        long max = Math.max(1, Math.max(cfg.raidIntervalMinDays, cfg.raidIntervalMaxDays)) * DAY;
+        return min + (max > min ? random.nextInt((int) (max - min) + 1) : 0);
+    }
+
+    private static int rollStrong(RandomSource random, SpreadConfig cfg) {
+        int min = Math.max(0, Math.min(cfg.raidStrongAfterMin, cfg.raidStrongAfterMax));
+        int max = Math.max(0, Math.max(cfg.raidStrongAfterMin, cfg.raidStrongAfterMax));
+        return min + random.nextInt(max - min + 1);
+    }
+
+    /** Дебаг-зонд: наближає (від'ємне) або відсуває (додатне) рейд за розкладом. Повертає секунди, що лишились. */
+    public static long shift(ServerLevel overworld, long ticks) {
+        RaidData data = RaidData.get(overworld);
+        long now = overworld.getGameTime();
+        if (data.next == 0L) data.next = now + 6000L;
+        data.next = Math.max(now + 200L, data.next + ticks);
+        data.setDirty();
+        return (data.next - now) / 20L;
     }
 
     private static List<Integer> weightedOrder(RandomSource random, SpreadConfig cfg) {
@@ -87,6 +116,11 @@ public final class InfectedRaids {
 
     /** Запускає рейд заданого типу. {@code only} = гравець, від якого шукати цілі (null = будь-який). Повертає кількість нападів. */
     public static int launchType(ServerLevel level, SpreadConfig cfg, int type, ServerPlayer only) {
+        return launchType(level, cfg, type, only, false);
+    }
+
+    /** {@code strong} = посилений рейд: мобів більше, вони сильніші. */
+    public static int launchType(ServerLevel level, SpreadConfig cfg, int type, ServerPlayer only, boolean strong) {
         List<ServerPlayer> players = new ArrayList<>();
         for (ServerPlayer p : level.players()) {
             if (only != null ? p == only : (!p.isCreative() && !p.isSpectator())) players.add(p);
@@ -109,10 +143,11 @@ public final class InfectedRaids {
             int launched = 0;
             for (RaidTargets.Target t : targets) {
                 int count = raidSize(cfg, day, type, targets.size());
-                int spawned = spawnGroup(level, cfg, t, count);
+                if (strong) count = (int) Math.round(count * Math.max(1.0, cfg.raidStrongMobsMultiplier));
+                int spawned = spawnGroup(level, cfg, t, count, strong);
                 if (spawned > 0) {
                     launched++;
-                    announce(level, cfg, t, spawned);
+                    announce(level, cfg, t, spawned, strong);
                 }
             }
             if (launched > 0) return launched;
@@ -127,10 +162,27 @@ public final class InfectedRaids {
         return Math.max(3, (int) Math.min(cfg.raidMobsMax, Math.round(n)));
     }
 
-    private static void announce(ServerLevel level, SpreadConfig cfg, RaidTargets.Target t, int mobs) {
-        FleshSpread.LOGGER.info("Рейд зараження ({}): {} {} (х{})", RaidTargets.NAMES[t.type()], t.name(),
-                t.pos().toShortString(), mobs);
+    private static long lastFx = -1000L;
+
+    private static void announce(ServerLevel level, SpreadConfig cfg, RaidTargets.Target t, int mobs, boolean strong) {
+        FleshSpread.LOGGER.info("Рейд зараження ({}{}): {} {} (х{})", RaidTargets.NAMES[t.type()], strong ? ", ПОСИЛЕНИЙ" : "",
+                t.name(), t.pos().toShortString(), mobs);
+        // звук і «кров та плоть» на екрані: один раз на хвилю (а не на кожну ціль)
+        long now = level.getGameTime();
+        if (cfg.raidScreenEffect && (now - lastFx > 200L || now < lastFx)) {
+            lastFx = now;
+            net.minecraft.sounds.SoundEvent roar = ForgeRegistries.SOUND_EVENTS.getValue(new ResourceLocation("minecraft", "entity.wither.spawn"));
+            for (ServerPlayer p : level.players()) {
+                if (roar != null) p.playNotifySound(roar, net.minecraft.sounds.SoundSource.HOSTILE, 1.0F, strong ? 0.4F : 0.55F);
+                FsNet.sendRaidFx(p, strong);
+            }
+        }
         if (!cfg.raidAnnounce) return;
+        if (strong) {
+            Component s = Component.literal("☣ ПОСИЛЕНИЙ РЕЙД ЗАРАЖЕННЯ! Їх більше і вони сильніші!")
+                    .withStyle(net.minecraft.ChatFormatting.DARK_RED, net.minecraft.ChatFormatting.BOLD);
+            for (ServerPlayer p : level.players()) p.sendSystemMessage(s);
+        }
         String what = switch (t.type()) {
             case RaidTargets.PLAYER -> "на гравця " + t.name();
             case RaidTargets.VILLAGE -> "на поселення " + t.name();
@@ -164,7 +216,7 @@ public final class InfectedRaids {
         return ForgeRegistries.ENTITY_TYPES.containsKey(id) ? ForgeRegistries.ENTITY_TYPES.getValue(id) : null;
     }
 
-    private static int spawnGroup(ServerLevel level, SpreadConfig cfg, RaidTargets.Target target, int count) {
+    private static int spawnGroup(ServerLevel level, SpreadConfig cfg, RaidTargets.Target target, int count, boolean strong) {
         double day = level.getGameTime() / (double) DAY;
         double base = level.random.nextDouble() * Math.PI * 2;
         int spawned = 0;
@@ -191,11 +243,21 @@ public final class InfectedRaids {
                 d.putInt(BUDGET, cfg.industryBreakBudgetPerMob);
                 if (count >= 6 && level.random.nextDouble() < cfg.raidBreakthroughShare) d.putBoolean(FLANK, true);
                 if (e instanceof Mob m) attachGoal(m);
+                if (strong && e instanceof net.minecraft.world.entity.LivingEntity le) {
+                    boost(le, net.minecraft.world.entity.ai.attributes.Attributes.MAX_HEALTH, cfg.raidStrongHealthMultiplier);
+                    boost(le, net.minecraft.world.entity.ai.attributes.Attributes.ATTACK_DAMAGE, cfg.raidStrongDamageMultiplier);
+                    le.setHealth(le.getMaxHealth());
+                }
                 spawned++;
                 break;
             }
         }
         return spawned;
+    }
+
+    private static void boost(net.minecraft.world.entity.LivingEntity e, net.minecraft.world.entity.ai.attributes.Attribute attr, double mult) {
+        var inst = e.getAttribute(attr);
+        if (inst != null && mult > 1.0) inst.setBaseValue(inst.getBaseValue() * mult);
     }
 
     public static void attachGoal(Mob mob) {

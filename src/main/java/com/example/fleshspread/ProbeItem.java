@@ -28,7 +28,9 @@ public class ProbeItem extends Item {
     public static final RegistryObject<Item> PROBE = ITEMS.register("infection_probe",
             () -> new ProbeItem(new Item.Properties().stacksTo(1).rarity(Rarity.EPIC)));
 
-    private static final String[] MODES = {"Гравець", "Поселення", "Варвари", "Пасовища", "Промисловість", "ППО"};
+    private static final String[] MODES = {"Гравець", "Поселення", "Варвари", "Пасовища", "Промисловість", "ППО",
+            "Посилений рейд (поселення)", "Пришвидшити рейд за розкладом (−5 хв)", "Відкласти рейд за розкладом (+5 хв)"};
+    private static final long STEP = 6000L; // чверть дня
 
     public ProbeItem(Properties p) {
         super(p);
@@ -56,6 +58,13 @@ public class ProbeItem extends Item {
         if (m == 5) {
             int n = AirDefense.spawn(sl, cfg, sp.blockPosition());
             msg = n > 0 ? "ППО: юнітів " + n : "ППО не створено (немає Flesh That Hates?)";
+        } else if (m == 6) {
+            int n = InfectedRaids.launchType(sl, cfg, RaidTargets.VILLAGE, sp, true);
+            msg = n > 0 ? "Посилений рейд: нападів " + n : "Посилений рейд: цілей не знайдено";
+        } else if (m == 7 || m == 8) {
+            long s = InfectedRaids.shift(sl.getServer().overworld(), m == 7 ? -STEP : STEP);
+            msg = (m == 7 ? "Рейд пришвидшено" : "Рейд відкладено") + ": залишилось "
+                    + (s >= 3600 ? String.format("%d:%02d:%02d", s / 3600, s % 3600 / 60, s % 60) : String.format("%d:%02d", s / 60, s % 60));
         } else {
             int n = InfectedRaids.launchType(sl, cfg, m, sp);
             msg = n > 0 ? "Рейд (" + MODES[m] + "): інфікованих " + n : "Рейд (" + MODES[m] + "): цілей не знайдено";
@@ -67,7 +76,7 @@ public class ProbeItem extends Item {
     @Override
     public void appendHoverText(ItemStack stack, Level level, List<Component> tips, net.minecraft.world.item.TooltipFlag f) {
         tips.add(Component.literal("Режим: " + MODES[mode(stack)]).withStyle(ChatFormatting.GRAY));
-        tips.add(Component.literal("ПКМ — запустити, Shift+ПКМ — змінити режим").withStyle(ChatFormatting.DARK_GRAY));
+        tips.add(Component.literal("ПКМ — застосувати, Shift+ПКМ — змінити режим").withStyle(ChatFormatting.DARK_GRAY));
     }
 
     @Mod.EventBusSubscriber(modid = FleshSpread.MOD_ID, bus = Mod.EventBusSubscriber.Bus.MOD)

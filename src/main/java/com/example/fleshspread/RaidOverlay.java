@@ -1,0 +1,100 @@
+package com.example.fleshspread;
+
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.sounds.SoundEvent;
+import net.minecraftforge.api.distmarker.Dist;
+import net.minecraftforge.client.event.RenderGuiEvent;
+import net.minecraftforge.eventbus.api.SubscribeEvent;
+import net.minecraftforge.fml.common.Mod;
+import net.minecraftforge.registries.ForgeRegistries;
+
+/**
+ * Клієнт: коли починається рейд зараження, екран плавно затягує «кров і плоть» (червона пульсуюча пелена з темними
+ * краями), чутно серцебиття, потім усе так само плавно зникає.
+ */
+@Mod.EventBusSubscriber(modid = FleshSpread.MOD_ID, value = Dist.CLIENT)
+public final class RaidOverlay {
+    private static final long FADE_IN = 2500L;
+    private static final long HOLD = 5000L;
+    private static final long FADE_OUT = 6000L;
+
+    private static long started = -1L;
+    private static boolean strong;
+    private static long lastBeat;
+
+    private RaidOverlay() {}
+
+    public static void start(boolean strongRaid) {
+        started = System.currentTimeMillis();
+        strong = strongRaid;
+        lastBeat = 0L;
+    }
+
+    @SubscribeEvent
+    public static void onRender(RenderGuiEvent.Post event) {
+        if (started < 0L) return;
+        long t = System.currentTimeMillis() - started;
+        long total = FADE_IN + HOLD + FADE_OUT;
+        if (t >= total) {
+            started = -1L;
+            return;
+        }
+        // плавний перехід: поява, утримання, згасання
+        float a;
+        if (t < FADE_IN) a = t / (float) FADE_IN;
+        else if (t < FADE_IN + HOLD) a = 1.0F;
+        else a = 1.0F - (t - FADE_IN - HOLD) / (float) FADE_OUT;
+        a = a * a * (3.0F - 2.0F * a); // згладжування
+        // пульс, як серцебиття
+        float pulse = 0.82F + 0.18F * (float) Math.sin(t / 1000.0D * Math.PI * 2.0D * 1.15D);
+        float k = a * pulse * (strong ? 1.0F : 0.8F);
+
+        GuiGraphics g = event.getGuiGraphics();
+        int w = event.getWindow().getGuiScaledWidth();
+        int h = event.getWindow().getGuiScaledHeight();
+
+        // кривава пелена на весь екран
+        g.fill(0, 0, w, h, argb((int) (70 * k), 0x7A, 0x08, 0x08));
+        // темна «плоть» по краях: згори і знизу градієнт, з боків смуги
+        int edge = argb((int) (215 * k), 0x30, 0x00, 0x02);
+        int clear = argb(0, 0x30, 0x00, 0x02);
+        int band = h / 3;
+        g.fillGradient(0, 0, w, band, edge, clear);
+        g.fillGradient(0, h - band, w, h, clear, edge);
+        int strips = 24;
+        int sw = Math.max(1, w / 3 / strips);
+        for (int i = 0; i < strips; i++) {
+            float f = 1.0F - i / (float) strips;
+            int c = argb((int) (215 * k * f * f), 0x30, 0x00, 0x02);
+            g.fill(i * sw, 0, (i + 1) * sw, h, c);
+            g.fill(w - (i + 1) * sw, 0, w - i * sw, h, c);
+        }
+        // напис на початку
+        if (t < FADE_IN + HOLD) {
+            Minecraft mc = Minecraft.getInstance();
+            Component text = Component.literal(strong ? "\u2623 ПОСИЛЕНИЙ РЕЙД ЗАРАЖЕННЯ \u2623" : "\u2623 ЗАРАЖЕННЯ НАСТУПАЄ \u2623");
+            int alpha = Math.max(8, (int) (255 * a));
+            g.pose().pushPose();
+            g.pose().translate(w / 2.0F, h / 4.0F, 0.0F);
+            g.pose().scale(2.0F, 2.0F, 1.0F);
+            g.drawCenteredString(mc.font, text, 0, 0, (alpha << 24) | 0xE01818);
+            g.pose().popPose();
+        }
+        // серцебиття
+        if (t - lastBeat >= 870L || lastBeat == 0L) {
+            lastBeat = Math.max(1L, t);
+            Minecraft mc = Minecraft.getInstance();
+            SoundEvent beat = ForgeRegistries.SOUND_EVENTS.getValue(new ResourceLocation("minecraft", "entity.warden.heartbeat"));
+            if (mc.player != null && beat != null) {
+                mc.player.playSound(beat, 1.2F * a + 0.2F, strong ? 0.8F : 1.0F);
+            }
+        }
+    }
+
+    private static int argb(int a, int r, int g, int b) {
+        return (Math.max(0, Math.min(255, a)) << 24) | (r << 16) | (g << 8) | b;
+    }
+}

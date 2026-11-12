@@ -12,6 +12,7 @@ public class FleshSpread {
 
     public FleshSpread() {
         SpreadConfig.load();
+        FsNet.register();
         ProbeItem.ITEMS.register(FMLJavaModLoadingContext.get().getModEventBus());
         LOGGER.info("Flesh Spread loaded");
     }

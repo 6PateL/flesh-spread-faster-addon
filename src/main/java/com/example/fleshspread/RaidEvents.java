@@ -12,6 +12,32 @@ import net.minecraftforge.fml.common.Mod;
 public final class RaidEvents {
     private RaidEvents() {}
 
+    private static final net.minecraft.server.level.ServerBossEvent BAR = new net.minecraft.server.level.ServerBossEvent(
+            net.minecraft.network.chat.Component.empty(), net.minecraft.world.BossEvent.BossBarColor.RED,
+            net.minecraft.world.BossEvent.BossBarOverlay.PROGRESS);
+
+    /** Смуга з живим відліком перед рейдом зараження (раз на секунду). */
+    @SubscribeEvent
+    public static void onServerTick(net.minecraftforge.event.TickEvent.ServerTickEvent event) {
+        if (event.phase != net.minecraftforge.event.TickEvent.Phase.END || event.getServer().getTickCount() % 20 != 0) return;
+        SpreadConfig cfg = SpreadConfig.get();
+        ServerLevel ow = event.getServer().overworld();
+        RaidData data = RaidData.get(ow);
+        long left = data.next - ow.getGameTime();
+        if (!cfg.enabled || !cfg.raidsEnabled || cfg.raidWarnMinutes <= 0 || data.next == 0L || left <= 0L
+                || left > cfg.raidWarnMinutes * 1200L) {
+            if (!BAR.getPlayers().isEmpty()) BAR.removeAllPlayers();
+            return;
+        }
+        long s = left / 20L;
+        boolean strong = data.untilStrong == 0;
+        BAR.setName(net.minecraft.network.chat.Component.literal((strong ? "\u2623 ПОСИЛЕНИЙ рейд зараження через "
+                : "\u2623 Рейд зараження через ") + String.format("%d:%02d", s / 60L, s % 60L)));
+        BAR.setProgress(Math.max(0.0F, Math.min(1.0F, left / (cfg.raidWarnMinutes * 1200.0F))));
+        BAR.setDarkenScreen(strong);
+        for (net.minecraft.server.level.ServerPlayer p : event.getServer().getPlayerList().getPlayers()) BAR.addPlayer(p);
+    }
+
     /** Вогнемет у руках гравця поруч зі зараженням (раз на секунду): тривога, як від ТНТ. */
     @SubscribeEvent
     public static void onFlamethrower(net.minecraftforge.event.entity.living.LivingEntityUseItemEvent.Tick event) {

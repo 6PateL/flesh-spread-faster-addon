@@ -45,7 +45,15 @@ public final class SpreadConfig {
     // --- рейди зараження ---
     public boolean raidsEnabled = true;
     public double raidStartDay = 2.0;             // перший рейд не раніше цього дня
-    public int raidIntervalDays = 2;              // рейд кожні N днів
+    public int raidIntervalMinDays = 3;           // наступний рейд у випадковий момент між min і max днів
+    public int raidIntervalMaxDays = 4;
+    public int raidStrongAfterMin = 3;            // посилений рейд після 3-6 звичайних (випадково)
+    public int raidStrongAfterMax = 6;
+    public double raidStrongMobsMultiplier = 2.0; // посилений: мобів більше
+    public double raidStrongHealthMultiplier = 1.5;
+    public double raidStrongDamageMultiplier = 1.3;
+    public int raidWarnMinutes = 5;               // смуга з відліком за стільки хвилин до рейду (0 = вимкнено)
+    public boolean raidScreenEffect = true;       // «кров і плоть» на екрані та звук на початку рейду
     public int raidSearchRadius = 220;            // цілі шукаємо в цьому радіусі від гравця (чанки мають бути завантажені)
     public int raidVillageCount = 3;              // скільки найближчих поселень за один рейд
     public int raidMobsBase = 6;

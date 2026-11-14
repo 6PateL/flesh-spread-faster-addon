@@ -26,25 +26,30 @@ public final class FsNet {
     }
 
     public static void sendRaidFx(ServerPlayer player, boolean strong) {
+        sendFx(player, strong ? 1 : 0);
+    }
+
+    /** 0 = рейд, 1 = посилений рейд, 2 = пробудження порталу плоті. */
+    public static void sendFx(ServerPlayer player, int mode) {
         try {
-            CHANNEL.send(PacketDistributor.PLAYER.with(() -> player), new RaidFx(strong));
+            CHANNEL.send(PacketDistributor.PLAYER.with(() -> player), new RaidFx(mode));
         } catch (Throwable t) {
             FleshSpread.LOGGER.warn("Не вдалося надіслати ефект рейду: {}", t.toString());
         }
     }
 
-    public record RaidFx(boolean strong) {
+    public record RaidFx(int mode) {
         static void encode(RaidFx m, FriendlyByteBuf buf) {
-            buf.writeBoolean(m.strong);
+            buf.writeByte(m.mode);
         }
 
         static RaidFx decode(FriendlyByteBuf buf) {
-            return new RaidFx(buf.readBoolean());
+            return new RaidFx(buf.readByte());
         }
 
         static void handle(RaidFx m, Supplier<NetworkEvent.Context> ctx) {
             NetworkEvent.Context c = ctx.get();
-            c.enqueueWork(() -> DistExecutor.unsafeRunWhenOn(Dist.CLIENT, () -> () -> RaidOverlay.start(m.strong)));
+            c.enqueueWork(() -> DistExecutor.unsafeRunWhenOn(Dist.CLIENT, () -> () -> RaidOverlay.start(m.mode)));
             c.setPacketHandled(true);
         }
     }

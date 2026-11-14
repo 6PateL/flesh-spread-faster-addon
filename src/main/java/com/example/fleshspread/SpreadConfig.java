@@ -55,6 +55,7 @@ public final class SpreadConfig {
     public int raidWarnMinutes = 5;               // смуга з відліком за стільки хвилин до рейду (0 = вимкнено)
     public boolean raidScreenEffect = true;       // «кров і плоть» на екрані та звук на початку рейду
     public int raidSearchRadius = 220;            // цілі шукаємо в цьому радіусі від гравця (чанки мають бути завантажені)
+    public int raidVillageRadius = 320;           // поселення шукаємо в цьому радіусі від гравця (як у варварів)
     public int raidVillageCount = 3;              // скільки найближчих поселень за один рейд
     public int raidMobsBase = 6;
     public double raidMobsPerDay = 0.7;
@@ -86,6 +87,15 @@ public final class SpreadConfig {
     public int aaLifetimeSeconds = 150;
     public int aaDeviceRadius = 14;               // де шукати роздатчики/поршні/слиз навколо ТНТ
     public int aaBreakPerHit = 3;                 // скільки блоків знищує за один «стрибок»
+
+    // --- вимір плоті ---
+    public double fleshDimSpawnerChance = 0.12;   // шанс великого інкубатора (спавнер 2 рівня) на кожен новий чанк виміру
+    public int fleshDimMobsNearPlayer = 8;        // скільки мобів зараження тримати навколо гравця у вимірі
+    public int fleshDimBossDistanceMin = 1000;    // лігво боса: відстань від першого порталу
+    public int fleshDimBossDistanceMax = 1500;
+    public int portalAwakenMobs = 10;             // скільки мобів вискакує з порталу при пробудженні
+    public int compassCooldownSeconds = 30;
+    public int compassSummon = 4;                 // скільки мобів кличе рев компаса, якщо поруч нікого немає
 
     private static SpreadConfig instance = new SpreadConfig();
     public static SpreadConfig get() { return instance; }

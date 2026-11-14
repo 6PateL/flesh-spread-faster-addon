@@ -132,7 +132,7 @@ public final class InfectedRaids {
         for (ServerPlayer p : players) {
             List<RaidTargets.Target> targets = switch (type) {
                 case RaidTargets.PLAYER -> RaidTargets.player(level, p, only != null);
-                case RaidTargets.VILLAGE -> RaidTargets.villages(level, p, cfg.raidVillageCount, radius);
+                case RaidTargets.VILLAGE -> RaidTargets.villages(level, p, cfg.raidVillageCount, Math.max(radius, cfg.raidVillageRadius));
                 case RaidTargets.BARBARIAN -> RaidTargets.barbarians(level, p, radius);
                 case RaidTargets.PASTURE -> RaidTargets.pastures(level, p, Math.min(radius, 128), cfg.pastureMinAnimals);
                 default -> RaidTargets.industry(level, p, Math.min(radius, 160), cfg.industryMinBlocks);
@@ -140,11 +140,17 @@ public final class InfectedRaids {
             if (type == RaidTargets.BARBARIAN || type == RaidTargets.PASTURE || type == RaidTargets.INDUSTRY) {
                 if (targets.size() > 1) targets = new ArrayList<>(targets.subList(0, 1));
             }
+            FleshSpread.LOGGER.info("Рейд зараження: тип «{}», гравець {}, знайдено цілей: {}{}", RaidTargets.NAMES[type],
+                    p.getName().getString(), targets.size(), strong ? " (посилений)" : "");
             int launched = 0;
             for (RaidTargets.Target t : targets) {
                 int count = raidSize(cfg, day, type, targets.size());
                 if (strong) count = (int) Math.round(count * Math.max(1.0, cfg.raidStrongMobsMultiplier));
                 int spawned = spawnGroup(level, cfg, t, count, strong);
+                if (spawned == 0) {
+                    FleshSpread.LOGGER.info("Рейд зараження: ціль «{}» {} пропущено — не вдалося поставити жодного моба (чанки навколо не завантажені або немає поверхні)",
+                            t.name(), t.pos().toShortString());
+                }
                 if (spawned > 0) {
                     launched++;
                     announce(level, cfg, t, spawned, strong);
@@ -152,6 +158,7 @@ public final class InfectedRaids {
             }
             if (launched > 0) return launched;
         }
+        FleshSpread.LOGGER.info("Рейд зараження: тип «{}» — жодного нападу не відбулося (гравців перевірено: {})", RaidTargets.NAMES[type], players.size());
         return 0;
     }
 
@@ -199,7 +206,7 @@ public final class InfectedRaids {
 
     // ------------------------------------------------------------------ моби
 
-    private static EntityType<?> pickType(RandomSource random, double day) {
+    static EntityType<?> pickType(RandomSource random, double day) {
         double total = 0;
         for (Raider r : RAIDERS) if (day >= r.minDay()) total += r.weight();
         double v = random.nextDouble() * total;
@@ -221,11 +228,13 @@ public final class InfectedRaids {
         double base = level.random.nextDouble() * Math.PI * 2;
         int spawned = 0;
         long end = level.getGameTime() + cfg.raidDurationSeconds * 20L;
+        // далекі села можуть бути завантажені лише біля центру: якщо на повній відстані поверхні немає, підходимо ближче
+        double[] shrink = {1.0, 1.0, 1.0, 0.75, 0.75, 0.55, 0.55, 0.35, 0.35, 0.2};
         for (int i = 0; i < count; i++) {
-            for (int attempt = 0; attempt < 8; attempt++) {
-                double ang = base + (level.random.nextDouble() - 0.5) * 1.4;
-                double dist = cfg.raidSpawnDistanceMin
-                        + level.random.nextDouble() * Math.max(1, cfg.raidSpawnDistanceMax - cfg.raidSpawnDistanceMin);
+            for (int attempt = 0; attempt < shrink.length; attempt++) {
+                double ang = attempt < 3 ? base + (level.random.nextDouble() - 0.5) * 1.4 : level.random.nextDouble() * Math.PI * 2;
+                double dist = (cfg.raidSpawnDistanceMin
+                        + level.random.nextDouble() * Math.max(1, cfg.raidSpawnDistanceMax - cfg.raidSpawnDistanceMin)) * shrink[attempt];
                 int x = (int) Math.floor(target.pos().getX() + Math.cos(ang) * dist);
                 int z = (int) Math.floor(target.pos().getZ() + Math.sin(ang) * dist);
                 BlockPos pos = Nests.findSurface(level, x, z);

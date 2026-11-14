@@ -1,0 +1,26 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "equipment",
+  "pattern": [
+    "VFV",
+    "FCF",
+    "VLV"
+  ],
+  "key": {
+    "V": {
+      "item": "flesh_that_hates:flesh_veins"
+    },
+    "F": {
+      "item": "flesh_that_hates:flesh"
+    },
+    "C": {
+      "item": "minecraft:compass"
+    },
+    "L": {
+      "item": "flesh_spread:living_flesh"
+    }
+  },
+  "result": {
+    "item": "flesh_spread:blood_compass"
+  }
+}

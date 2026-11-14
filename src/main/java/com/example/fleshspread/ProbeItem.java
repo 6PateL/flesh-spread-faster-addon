@@ -83,7 +83,12 @@ public class ProbeItem extends Item {
     public static final class Tabs {
         @SubscribeEvent
         public static void tab(BuildCreativeModeTabContentsEvent e) {
-            if (e.getTabKey() == CreativeModeTabs.TOOLS_AND_UTILITIES) e.accept(PROBE.get());
+            if (e.getTabKey() == CreativeModeTabs.TOOLS_AND_UTILITIES) {
+                e.accept(PROBE.get());
+                e.accept(FleshDim.FRAME_ITEM.get());
+                e.accept(FleshDim.BLOOD_COMPASS.get());
+                e.accept(FleshDim.HEART_ITEM.get());
+            }
         }
     }
 }

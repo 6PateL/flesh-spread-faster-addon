@@ -75,7 +75,7 @@ public final class RaidTargets {
     public static List<Target> villages(ServerLevel level, ServerPlayer from, int count, double radius) {
         List<Village> near = new ArrayList<>();
         for (Village v : villages(level.getServer())) {
-            if (horizontal(v.center(), from.blockPosition()) <= radius * radius && level.hasChunkAt(v.center())) near.add(v);
+            if (horizontal(v.center(), from.blockPosition()) <= radius * radius) near.add(v);
         }
         near.sort(Comparator.<Village>comparingInt(v -> v.playerOwned() ? 0 : 1)
                 .thenComparingDouble(v -> horizontal(v.center(), from.blockPosition())));

@@ -1,0 +1,16 @@
+{
+  "variants": {
+    "active=false,axis=x": {
+      "model": "flesh_spread:block/flesh_portal_dormant_ns"
+    },
+    "active=false,axis=z": {
+      "model": "flesh_spread:block/flesh_portal_dormant_ew"
+    },
+    "active=true,axis=x": {
+      "model": "flesh_spread:block/flesh_portal_ns"
+    },
+    "active=true,axis=z": {
+      "model": "flesh_spread:block/flesh_portal_ew"
+    }
+  }
+}

@@ -27,9 +27,13 @@ public final class RaidOverlay {
 
     private RaidOverlay() {}
 
-    public static void start(boolean strongRaid) {
+    private static int mode;
+
+    /** 0 = рейд, 1 = посилений рейд, 2 = пробудження порталу плоті. */
+    public static void start(int fxMode) {
         started = System.currentTimeMillis();
-        strong = strongRaid;
+        mode = fxMode;
+        strong = fxMode != 0;
         lastBeat = 0L;
     }
 
@@ -75,7 +79,8 @@ public final class RaidOverlay {
         // напис на початку
         if (t < FADE_IN + HOLD) {
             Minecraft mc = Minecraft.getInstance();
-            Component text = Component.literal(strong ? "\u2623 ПОСИЛЕНИЙ РЕЙД ЗАРАЖЕННЯ \u2623" : "\u2623 ЗАРАЖЕННЯ НАСТУПАЄ \u2623");
+            Component text = Component.literal(mode == 2 ? "\u2623 ВРАТА ПЛОТІ ВІДЧИНЕНО \u2623"
+                    : mode == 1 ? "\u2623 ПОСИЛЕНИЙ РЕЙД ЗАРАЖЕННЯ \u2623" : "\u2623 ЗАРАЖЕННЯ НАСТУПАЄ \u2623");
             int alpha = Math.max(8, (int) (255 * a));
             g.pose().pushPose();
             g.pose().translate(w / 2.0F, h / 4.0F, 0.0F);

@@ -97,6 +97,15 @@ public final class SpreadConfig {
     public int compassCooldownSeconds = 30;
     public int compassSummon = 4;                 // скільки мобів кличе рев компаса, якщо поруч нікого немає
 
+    // --- розломи: портали плоті, що самі відкриваються поруч із гравцями ---
+    public boolean riftsEnabled = true;
+    public int riftIntervalMinSeconds = 240;      // часто...
+    public int riftIntervalMaxSeconds = 480;
+    public int riftLifetimeSeconds = 75;          // ...але ненадовго
+    public int riftDistanceMin = 16;              // відстань від гравця
+    public int riftDistanceMax = 40;
+    public int riftMobs = 3;                      // скільки заражених виходить із розлому
+
     private static SpreadConfig instance = new SpreadConfig();
     public static SpreadConfig get() { return instance; }
 

@@ -218,6 +218,12 @@ public final class FleshDim {
                     .withStyle(ChatFormatting.DARK_RED), true);
             return;
         }
+        if (FleshRifts.isRift(level, pos) && !FleshRifts.hasArtifact(player)) {
+            COOLDOWN.put(player.getUUID(), now + 60L);
+            player.displayClientMessage(Component.literal("Розлом не пускає: потрібен артефакт Made in Heaven в інвентарі.")
+                    .withStyle(ChatFormatting.DARK_RED), true);
+            return;
+        }
         COOLDOWN.put(player.getUUID(), now + 200L);
         travel(level, player);
     }

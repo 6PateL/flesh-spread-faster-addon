@@ -29,7 +29,7 @@ public class ProbeItem extends Item {
             () -> new ProbeItem(new Item.Properties().stacksTo(1).rarity(Rarity.EPIC)));
 
     private static final String[] MODES = {"Гравець", "Поселення", "Варвари", "Пасовища", "Промисловість", "ППО",
-            "Посилений рейд (поселення)", "Пришвидшити рейд за розкладом (−5 хв)", "Відкласти рейд за розкладом (+5 хв)"};
+            "Посилений рейд (поселення)", "Пришвидшити рейд за розкладом (−5 хв)", "Відкласти рейд за розкладом (+5 хв)", "Розлом плоті (портал-подія поруч)"};
     private static final long STEP = 6000L; // чверть дня
 
     public ProbeItem(Properties p) {
@@ -61,6 +61,10 @@ public class ProbeItem extends Item {
         } else if (m == 6) {
             int n = InfectedRaids.launchType(sl, cfg, RaidTargets.VILLAGE, sp, true);
             msg = n > 0 ? "Посилений рейд: нападів " + n : "Посилений рейд: цілей не знайдено";
+        } else if (m == 9) {
+            net.minecraft.core.BlockPos at = FleshRifts.open(sl, sp.blockPosition(), 6, 12, "зонд, " + sp.getName().getString());
+            msg = at != null ? "Розлом відкривається на " + at.toShortString()
+                    : FleshDim.isFlesh(sl) ? "У вимірі плоті розломів не буває" : "Розлом: не знайшлося місця поруч";
         } else if (m == 7 || m == 8) {
             long s = InfectedRaids.shift(sl.getServer().overworld(), m == 7 ? -STEP : STEP);
             msg = (m == 7 ? "Рейд пришвидшено" : "Рейд відкладено") + ": залишилось "

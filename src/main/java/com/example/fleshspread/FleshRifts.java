@@ -1,0 +1,294 @@
+package com.example.fleshspread;
+
+import net.minecraft.ChatFormatting;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.core.particles.ParticleTypes;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.NbtUtils;
+import net.minecraft.nbt.Tag;
+import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.saveddata.SavedData;
+import net.minecraftforge.event.TickEvent;
+import net.minecraftforge.event.level.BlockEvent;
+import net.minecraftforge.eventbus.api.SubscribeEvent;
+import net.minecraftforge.fml.common.Mod;
+import net.minecraftforge.registries.ForgeRegistries;
+
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
+
+/**
+ * Розломи: портали плоті, які самі відкриваються поруч із гравцями як подія. Рамка виростає із землі ряд за рядом, рій
+ * виє, з розлому виходять заражені; через короткий час розлом так само ряд за рядом затягується і зникає. Увійти в
+ * розлом можна лише з артефактом Made in Heaven в інвентарі.
+ */
+@Mod.EventBusSubscriber(modid = FleshSpread.MOD_ID)
+public final class FleshRifts {
+    private static final ResourceLocation ARTIFACT = new ResourceLocation("timelesspower", "made_in_heaven");
+    private static final int W = 4, H = 5;
+    private static final int GROW = 0, OPEN = 1, CLOSE = 2;
+
+    private FleshRifts() {}
+
+    static final class Rift {
+        BlockPos base;       // нижній лівий кут рамки (рамка вздовж осі X)
+        long expire;
+        int phase = GROW;
+        int rows;            // скільки рядів рамки зараз стоїть
+        final List<BlockState> saved = new ArrayList<>(); // що було на місці рамки (W*H, ряд за рядом)
+    }
+
+    public static class Data extends SavedData {
+        final List<Rift> rifts = new ArrayList<>();
+        long next;
+
+        static Data get(ServerLevel level) {
+            return level.getDataStorage().computeIfAbsent(Data::load, Data::new, "flesh_spread_rifts");
+        }
+
+        static Data load(CompoundTag tag) {
+            Data d = new Data();
+            d.next = tag.getLong("next");
+            ListTag list = tag.getList("rifts", Tag.TAG_COMPOUND);
+            for (int i = 0; i < list.size(); i++) {
+                CompoundTag c = list.getCompound(i);
+                Rift r = new Rift();
+                r.base = BlockPos.of(c.getLong("base"));
+                r.expire = c.getLong("expire");
+                r.phase = c.getInt("phase");
+                r.rows = c.getInt("rows");
+                ListTag st = c.getList("saved", Tag.TAG_COMPOUND);
+                for (int k = 0; k < st.size(); k++) {
+                    r.saved.add(NbtUtils.readBlockState(BuiltInRegistries.BLOCK.asLookup(), st.getCompound(k)));
+                }
+                if (r.saved.size() == W * H) d.rifts.add(r);
+            }
+            return d;
+        }
+
+        @Override
+        public CompoundTag save(CompoundTag tag) {
+            tag.putLong("next", next);
+            ListTag list = new ListTag();
+            for (Rift r : rifts) {
+                CompoundTag c = new CompoundTag();
+                c.putLong("base", r.base.asLong());
+                c.putLong("expire", r.expire);
+                c.putInt("phase", r.phase);
+                c.putInt("rows", r.rows);
+                ListTag st = new ListTag();
+                for (BlockState s : r.saved) st.add(NbtUtils.writeBlockState(s));
+                c.put("saved", st);
+                list.add(c);
+            }
+            tag.put("rifts", list);
+            return tag;
+        }
+    }
+
+    static boolean hasArtifact(ServerPlayer p) {
+        for (int i = 0; i < p.getInventory().getContainerSize(); i++) {
+            ItemStack s = p.getInventory().getItem(i);
+            if (!s.isEmpty() && ARTIFACT.equals(ForgeRegistries.ITEMS.getKey(s.getItem()))) return true;
+        }
+        return false;
+    }
+
+    private static boolean inside(Rift r, BlockPos p) {
+        return p.getZ() == r.base.getZ() && p.getX() >= r.base.getX() && p.getX() < r.base.getX() + W
+                && p.getY() >= r.base.getY() && p.getY() < r.base.getY() + H;
+    }
+
+    /** Чи належить цей блок (мембрана або рамка) розлому. */
+    static boolean isRift(Level level, BlockPos pos) {
+        if (!(level instanceof ServerLevel sl) || FleshDim.isFlesh(level)) return false;
+        for (Rift r : Data.get(sl).rifts) {
+            if (inside(r, pos)) return true;
+        }
+        return false;
+    }
+
+    /** Рамку розлому не можна розібрати на блоки: вона зникне сама. */
+    @SubscribeEvent
+    public static void onBreak(BlockEvent.BreakEvent event) {
+        if (event.getLevel() instanceof ServerLevel level && event.getState().is(FleshDim.FRAME.get()) && isRift(level, event.getPos())) {
+            event.setCanceled(true);
+            event.getPlayer().displayClientMessage(Component.literal("Плоть розлому не піддається: він затягнеться сам.")
+                    .withStyle(ChatFormatting.DARK_RED), true);
+        }
+    }
+
+    // ------------------------------------------------------------------ відкриття
+
+    /** Відкриває розлом біля точки (шукає поверхню на відстані min..max). Повертає місце або null. */
+    public static BlockPos open(ServerLevel level, BlockPos around, int min, int max, String why) {
+        if (FleshDim.isFlesh(level)) return null;
+        SpreadConfig cfg = SpreadConfig.get();
+        Data data = Data.get(level);
+        for (int attempt = 0; attempt < 12; attempt++) {
+            double ang = level.random.nextDouble() * Math.PI * 2.0D;
+            double dist = min + level.random.nextDouble() * Math.max(1, max - min);
+            int x = (int) Math.floor(around.getX() + Math.cos(ang) * dist);
+            int z = (int) Math.floor(around.getZ() + Math.sin(ang) * dist);
+            BlockPos s = Nests.findSurface(level, x + 1, z);
+            if (s == null || !level.hasChunkAt(new BlockPos(x, s.getY(), z)) || !level.hasChunkAt(new BlockPos(x + W - 1, s.getY(), z))) continue;
+            BlockPos base = new BlockPos(x, s.getY(), z);
+            boolean clash = false;
+            for (Rift r : data.rifts) {
+                if (r.base.distSqr(base) < 24.0D * 24.0D) clash = true;
+            }
+            // над землею має бути вільно, і жодних блоків із вмістом
+            for (int i = 0; i < W && !clash; i++) {
+                for (int j = 0; j < H; j++) {
+                    BlockPos p = base.offset(i, j, 0);
+                    BlockState st = level.getBlockState(p);
+                    if (st.hasBlockEntity() || st.getDestroySpeed(level, p) < 0.0F || (j >= 2 && !st.getCollisionShape(level, p).isEmpty())) {
+                        clash = true;
+                        break;
+                    }
+                }
+            }
+            if (clash) continue;
+            Rift r = new Rift();
+            r.base = base;
+            r.expire = level.getGameTime() + 40L + Math.max(10, cfg.riftLifetimeSeconds) * 20L;
+            for (int j = 0; j < H; j++) {
+                for (int i = 0; i < W; i++) r.saved.add(level.getBlockState(base.offset(i, j, 0)));
+            }
+            data.rifts.add(r);
+            data.setDirty();
+            FleshDim.sound(level, base, "flesh_that_hates:entity.incubator.spawn", 4.0F, 0.6F);
+            FleshSpread.LOGGER.info("Розлом плоті відкривається на {} ({}), триватиме {} с", base.toShortString(), why, cfg.riftLifetimeSeconds);
+            return base;
+        }
+        FleshSpread.LOGGER.info("Розлом плоті: не знайшлося місця біля {} ({})", around.toShortString(), why);
+        return null;
+    }
+
+    // ------------------------------------------------------------------ життя розломів
+
+    @SubscribeEvent
+    public static void onLevelTick(TickEvent.LevelTickEvent event) {
+        if (event.phase != TickEvent.Phase.END || !(event.level instanceof ServerLevel level) || FleshDim.isFlesh(level)) return;
+        SpreadConfig cfg = SpreadConfig.get();
+        if (!cfg.enabled || !cfg.dimensions.contains(level.dimension().location().toString())) return;
+        long now = level.getGameTime();
+        if (now % 6L != 0L) return;
+        Data data = Data.get(level);
+
+        // розклад: часто, але ненадовго
+        if (cfg.riftsEnabled && !level.players().isEmpty()) {
+            if (data.next == 0L) {
+                data.next = now + interval(level, cfg);
+                data.setDirty();
+            } else if (now >= data.next) {
+                List<ServerPlayer> ok = new ArrayList<>();
+                for (ServerPlayer p : level.players()) {
+                    if (!p.isSpectator()) ok.add(p);
+                }
+                BlockPos at = ok.isEmpty() ? null
+                        : open(level, ok.get(level.random.nextInt(ok.size())).blockPosition(), cfg.riftDistanceMin, cfg.riftDistanceMax, "подія");
+                data.next = now + (at != null ? interval(level, cfg) : 600L);
+                data.setDirty();
+            }
+        }
+
+        Iterator<Rift> it = data.rifts.iterator();
+        while (it.hasNext()) {
+            Rift r = it.next();
+            if (!level.hasChunkAt(r.base) || !level.hasChunkAt(r.base.offset(W - 1, 0, 0))) continue;
+            data.setDirty();
+            if (r.phase == GROW) {
+                growRow(level, r);
+                if (r.rows >= H) openMembrane(level, r, cfg);
+            } else if (r.phase == OPEN) {
+                if (now >= r.expire) {
+                    r.phase = CLOSE;
+                    FleshDim.sound(level, r.base, "flesh_that_hates:entity.incubator_small.hurt", 4.0F, 0.5F);
+                    for (int i = 1; i < W - 1; i++) {
+                        for (int j = 1; j < H - 1; j++) level.setBlock(r.base.offset(i, j, 0), Blocks.AIR.defaultBlockState(), 18);
+                    }
+                    burst(level, r.base.offset(1, 2, 0), 40);
+                } else if (level.random.nextInt(4) == 0) {
+                    burst(level, r.base.offset(1 + level.random.nextInt(2), 1 + level.random.nextInt(3), 0), 4);
+                }
+            } else {
+                closeRow(level, r);
+                if (r.rows <= 0) {
+                    FleshSpread.LOGGER.info("Розлом плоті на {} затягнувся", r.base.toShortString());
+                    it.remove();
+                }
+            }
+        }
+    }
+
+    private static long interval(ServerLevel level, SpreadConfig cfg) {
+        int min = Math.max(20, Math.min(cfg.riftIntervalMinSeconds, cfg.riftIntervalMaxSeconds));
+        int max = Math.max(min, Math.max(cfg.riftIntervalMinSeconds, cfg.riftIntervalMaxSeconds));
+        return (min + level.random.nextInt(max - min + 1)) * 20L;
+    }
+
+    private static void burst(ServerLevel level, BlockPos p, int count) {
+        level.sendParticles(ParticleTypes.CRIMSON_SPORE, p.getX() + 0.5D, p.getY() + 0.5D, p.getZ() + 0.5D, count, 0.6D, 0.6D, 0.3D, 0.02D);
+        level.sendParticles(ParticleTypes.DAMAGE_INDICATOR, p.getX() + 0.5D, p.getY() + 0.5D, p.getZ() + 0.5D, Math.max(1, count / 4), 0.5D, 0.5D, 0.3D, 0.05D);
+    }
+
+    /** Анімація появи: рамка виростає із землі, ряд за рядом. */
+    private static void growRow(ServerLevel level, Rift r) {
+        int j = r.rows;
+        for (int i = 0; i < W; i++) {
+            BlockPos p = r.base.offset(i, j, 0);
+            boolean edge = i == 0 || i == W - 1 || j == 0 || j == H - 1;
+            level.setBlock(p, edge ? FleshDim.FRAME.get().defaultBlockState() : Blocks.AIR.defaultBlockState(), 3);
+            if (edge) burst(level, p, 6);
+        }
+        FleshDim.sound(level, r.base.above(j), "flesh_that_hates:block.flesh_block.place", 2.5F, 0.6F + j * 0.08F);
+        r.rows++;
+    }
+
+    private static void openMembrane(ServerLevel level, Rift r, SpreadConfig cfg) {
+        BlockState membrane = FleshDim.PORTAL.get().defaultBlockState().setValue(FleshPortalBlock.AXIS, Direction.Axis.X)
+                .setValue(FleshPortalBlock.ACTIVE, true);
+        for (int i = 1; i < W - 1; i++) {
+            for (int j = 1; j < H - 1; j++) level.setBlock(r.base.offset(i, j, 0), membrane, 18);
+        }
+        r.phase = OPEN;
+        BlockPos c = r.base.offset(1, 2, 0);
+        burst(level, c, 60);
+        FleshDim.sound(level, c, "flesh_that_hates:entity.call", 7.0F, 0.6F);
+        FleshDim.sound(level, c, "flesh_that_hates:entity.herpad.summon", 4.0F, 0.7F);
+        int mobs = FleshDim.summon(level, c.below(), cfg.riftMobs, 1, 3, null);
+        Component msg = Component.literal("☣ Поруч розкрився розлом плоті (" + c.getX() + ", " + c.getY() + ", " + c.getZ()
+                + "). Він скоро затягнеться.").withStyle(ChatFormatting.DARK_RED);
+        for (ServerPlayer p : level.players()) {
+            if (p.distanceToSqr(c.getX(), c.getY(), c.getZ()) < 128.0D * 128.0D) p.sendSystemMessage(msg);
+        }
+        FleshSpread.LOGGER.info("Розлом плоті на {} відкрито, вийшло мобів: {}", r.base.toShortString(), mobs);
+    }
+
+    /** Анімація зникнення: рамка затягується згори донизу, на її місце повертається те, що було. */
+    private static void closeRow(ServerLevel level, Rift r) {
+        int j = r.rows - 1;
+        for (int i = 0; i < W; i++) {
+            BlockPos p = r.base.offset(i, j, 0);
+            BlockState now = level.getBlockState(p);
+            if (now.is(FleshDim.FRAME.get()) || now.is(FleshDim.PORTAL.get()) || now.isAir()) {
+                level.setBlock(p, r.saved.get(j * W + i), 3);
+            }
+            burst(level, p, 5);
+        }
+        FleshDim.sound(level, r.base.above(j), "flesh_that_hates:block.flesh_block.break", 2.5F, 0.9F - j * 0.08F);
+        r.rows--;
+    }
+}

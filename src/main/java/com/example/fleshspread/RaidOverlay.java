@@ -17,9 +17,53 @@ import net.minecraftforge.registries.ForgeRegistries;
  */
 @Mod.EventBusSubscriber(modid = FleshSpread.MOD_ID, value = Dist.CLIENT)
 public final class RaidOverlay {
-    private static final long FADE_IN = 2500L;
-    private static final long HOLD = 5000L;
-    private static final long FADE_OUT = 6000L;
+    private static long FADE_IN = 2500L;
+    private static long HOLD = 5000L;
+    private static long FADE_OUT = 6000L;
+
+    // розворот гравця кривавим компасом
+    private static long turnStart = -1L;
+    private static float turnFrom, turnTo, pitchFrom;
+    private static final long TURN_MS = 900L;
+
+    /** Кривавий компас: короткий кривавий спалах і плавний розворот у бік лігва. */
+    public static void compass(float yaw, boolean turn) {
+        started = System.currentTimeMillis();
+        mode = 3;
+        strong = true;
+        lastBeat = 0L;
+        FADE_IN = 250L;
+        HOLD = 900L;
+        FADE_OUT = 1800L;
+        Minecraft mc = Minecraft.getInstance();
+        if (turn && mc.player != null) {
+            turnStart = started;
+            turnFrom = mc.player.getYRot();
+            turnTo = turnFrom + net.minecraft.util.Mth.wrapDegrees(yaw - turnFrom);
+            pitchFrom = mc.player.getXRot();
+        }
+    }
+
+    /** Кожен кадр: поки триває розворот, камера сама повертається до цілі. */
+    @SubscribeEvent
+    public static void onFrame(net.minecraftforge.event.TickEvent.RenderTickEvent event) {
+        if (turnStart < 0L || event.phase != net.minecraftforge.event.TickEvent.Phase.START) return;
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.player == null) {
+            turnStart = -1L;
+            return;
+        }
+        float f = Math.min(1.0F, (System.currentTimeMillis() - turnStart) / (float) TURN_MS);
+        float k = f * f * (3.0F - 2.0F * f);
+        float yaw = turnFrom + (turnTo - turnFrom) * k;
+        float pitch = pitchFrom + (0.0F - pitchFrom) * k;
+        mc.player.setYRot(yaw);
+        mc.player.setXRot(pitch);
+        mc.player.yRotO = yaw;
+        mc.player.xRotO = pitch;
+        mc.player.setYHeadRot(yaw);
+        if (f >= 1.0F) turnStart = -1L;
+    }
 
     private static long started = -1L;
     private static boolean strong;
@@ -34,6 +78,9 @@ public final class RaidOverlay {
         started = System.currentTimeMillis();
         mode = fxMode;
         strong = fxMode != 0;
+        FADE_IN = 2500L;
+        HOLD = 5000L;
+        FADE_OUT = 6000L;
         lastBeat = 0L;
     }
 
@@ -77,7 +124,7 @@ public final class RaidOverlay {
             g.fill(w - (i + 1) * sw, 0, w - i * sw, h, c);
         }
         // напис на початку
-        if (t < FADE_IN + HOLD) {
+        if (t < FADE_IN + HOLD && mode != 3) {
             Minecraft mc = Minecraft.getInstance();
             Component text = Component.literal(mode == 2 ? "\u2623 ВРАТА ПЛОТІ ВІДЧИНЕНО \u2623"
                     : mode == 1 ? "\u2623 ПОСИЛЕНИЙ РЕЙД ЗАРАЖЕННЯ \u2623" : "\u2623 ЗАРАЖЕННЯ НАСТУПАЄ \u2623");

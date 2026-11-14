@@ -48,6 +48,7 @@ public class BloodCompassItem extends Item {
         if (data.boss == null) {
             sp.displayClientMessage(Component.literal("Компас мовчить: лігво ще не визначено (зайдіть у вимір через портал).")
                     .withStyle(ChatFormatting.DARK_RED), true);
+            FsNet.sendCompass(sp, sp.getYRot(), false);
         } else {
             double dx = data.boss.getX() + 0.5D - sp.getX();
             double dz = data.boss.getZ() + 0.5D - sp.getZ();
@@ -60,6 +61,8 @@ public class BloodCompassItem extends Item {
                 level.sendParticles(sp, blood, true, sp.getX() + nx * f, sp.getEyeY() - 0.3D + Math.sin(i * 0.5D) * 0.15D,
                         sp.getZ() + nz * f, 2, 0.05D, 0.05D, 0.05D, 0.0D);
             }
+            // кров на екрані, а самого гравця розвертає обличчям до лігва
+            FsNet.sendCompass(sp, (float) (Math.toDegrees(Math.atan2(dz, dx)) - 90.0D), dist > 3.0D);
             int side = (int) Math.floorMod(Math.round(Math.atan2(dz, dx) / (Math.PI / 4.0D)), 8L);
             String range = dist < 48.0D ? "зовсім поруч" : dist < 200.0D ? "близько" : dist < 600.0D ? "далеко" : "дуже далеко";
             sp.displayClientMessage(Component.literal("Серце плоті: " + SIDES[side] + ", " + range).withStyle(ChatFormatting.DARK_RED), true);

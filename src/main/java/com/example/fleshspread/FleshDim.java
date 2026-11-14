@@ -283,7 +283,7 @@ public final class FleshDim {
         double day = Math.max(6.0D, level.getGameTime() / 24000.0D);
         int made = 0;
         for (int i = 0; i < count; i++) {
-            EntityType<?> type = InfectedRaids.pickType(level.random, day);
+            EntityType<?> type = isFlesh(level) ? anyMob(level) : InfectedRaids.pickType(level.random, day);
             if (type == null) break;
             for (int attempt = 0; attempt < 6; attempt++) {
                 double ang = level.random.nextDouble() * Math.PI * 2.0D;
@@ -406,11 +406,22 @@ public final class FleshDim {
 
     // ================================================================== усе з плоті: нові чанки виміру
 
-    private static final Object NONE = new Object();
-    private static final Map<BlockState, Object> CONVERT = new IdentityHashMap<>();
-    private static final Set<BlockState> PLANTS = new HashSet<>();
+    /** Що робити з блоком звичайного світу. */
+    private static final class Rule {
+        BlockState target;   // null = лишити як є
+        int kind;            // 0 просто замінити, 1 рослина, 2 поверхня (трава), 3 будівельний блок (руйнується клітинами), 4 прибрати завжди
+        boolean chest;
+    }
+
+    private static final Rule KEEP = new Rule();
+    private static final Map<BlockState, Rule> RULES = new IdentityHashMap<>();
     private record PendingNest(int x, int z, long time) {}
     private static final ArrayDeque<PendingNest> NESTS = new ArrayDeque<>();
+    /** Відкладена робота над новим чанком: блоки, які треба прибрати «по-справжньому» (з оновленням світла), і скрині. */
+    private record Ruin(long chunk, long time, List<BlockPos> remove, List<BlockPos> chests) {}
+    private static final ArrayDeque<Ruin> RUINS = new ArrayDeque<>();
+    private record PendingMob(BlockPos pos, String type) {}
+    private static final ArrayDeque<PendingMob> MOBS = new ArrayDeque<>();
 
     @SubscribeEvent
     public static void onChunkLoad(ChunkEvent.Load event) {
@@ -426,88 +437,174 @@ public final class FleshDim {
         }
     }
 
-    /** Замінює звичайні блоки щойно згенерованого чанка на плоть (каміння, землю, траву, дерева, будинки сіл). */
+    private static int hash(int x, int y, int z) {
+        long h = x * 73428767L ^ y * 912931L ^ z * 42317861L;
+        h ^= h >>> 13;
+        h *= 0x5DEECE66DL;
+        h ^= h >>> 17;
+        return (int) (h & 0x7FFFFFFF);
+    }
+
+    /**
+     * Замінює звичайні блоки щойно згенерованого чанка на плоть (каміння, землю, траву, дерева, будинки сіл). Села
+     * стають руїнами: частину стін і дахів вибито цілими шматками, дверей, вікон, ліжок і смолоскипів немає.
+     */
     private static void fleshify(ServerLevel level, LevelChunk chunk) {
-        Block bush = fth("tooth_bush");
         int changed = 0;
-        for (LevelChunkSection sec : chunk.getSections()) {
+        int x0 = chunk.getPos().getMinBlockX(), z0 = chunk.getPos().getMinBlockZ();
+        List<BlockPos> remove = new ArrayList<>();
+        List<BlockPos> chests = new ArrayList<>();
+        LevelChunkSection[] sections = chunk.getSections();
+        for (int si = 0; si < sections.length; si++) {
+            LevelChunkSection sec = sections[si];
             if (sec == null || sec.hasOnlyAir()) continue;
+            int y0 = chunk.getSectionYFromSectionIndex(si) << 4;
             for (int y = 0; y < 16; y++) {
                 for (int z = 0; z < 16; z++) {
                     for (int x = 0; x < 16; x++) {
                         BlockState st = sec.getBlockState(x, y, z);
                         if (st.isAir()) continue;
-                        Object to = CONVERT.get(st);
-                        if (to == null) {
-                            to = convert(st);
-                            CONVERT.put(st, to);
+                        Rule rule = RULES.get(st);
+                        if (rule == null) {
+                            rule = rule(st);
+                            RULES.put(st, rule);
                         }
-                        if (to == NONE) continue;
-                        BlockState target = (BlockState) to;
-                        if (PLANTS.contains(st)) {
-                            // трава й квіти: зрідка зубастий кущ, решта просто зникає
-                            target = bush != null && target.is(bush) && level.random.nextInt(6) == 0 ? target : Blocks.AIR.defaultBlockState();
+                        if (rule == KEEP) continue;
+                        int bx = x0 + x, by = y0 + y, bz = z0 + z;
+                        if (rule.chest) chests.add(new BlockPos(bx, by, bz));
+                        BlockState target = rule.target;
+                        switch (rule.kind) {
+                            case 1 -> // трава й квіти зникають, зрідка лишається зубастий кущ
+                                    target = target != null && level.random.nextInt(45) == 0 ? target : Blocks.AIR.defaultBlockState();
+                            case 2 -> { // поверхня плямами: жива трава, гнила трава, гола плоть, пісок
+                                int h = hash(bx >> 3, 0, bz >> 3) % 100;
+                                Block alt = h < 45 ? null : fth(h < 70 ? "rotting_flesh_grass" : h < 88 ? "flesh_dirt" : "rotting_flesh_dirt");
+                                if (alt != null) target = alt.defaultBlockState();
+                            }
+                            case 3 -> { // руїни: клітини 3x3x3, третина з них вибита майже повністю
+                                boolean broken = hash(Math.floorDiv(bx, 3), Math.floorDiv(by, 3), Math.floorDiv(bz, 3)) % 100 < 36;
+                                if (level.random.nextInt(100) < (broken ? 85 : 7)) {
+                                    remove.add(new BlockPos(bx, by, bz));
+                                    continue;
+                                }
+                            }
+                            case 4 -> {
+                                remove.add(new BlockPos(bx, by, bz));
+                                continue;
+                            }
+                            default -> { }
                         }
-                        sec.setBlockState(x, y, z, target, false);
-                        changed++;
+                        if (target != null && target != st) {
+                            sec.setBlockState(x, y, z, target, false);
+                            changed++;
+                        }
                     }
                 }
             }
         }
         if (changed > 0) chunk.setUnsaved(true);
+        if (!remove.isEmpty() || !chests.isEmpty()) {
+            RUINS.add(new Ruin(chunk.getPos().toLong(), level.getGameTime(), remove, chests));
+        }
     }
 
-    private static Object convert(BlockState st) {
+    private static Rule rule(BlockState st) {
         Block b = st.getBlock();
         String to = null;
-        boolean plant = false;
+        int kind = 0;
+        boolean chest = b instanceof net.minecraft.world.level.block.ChestBlock || b instanceof net.minecraft.world.level.block.BarrelBlock;
         if (st.is(BlockTags.LOGS)) to = "flesh_log";
         else if (st.is(BlockTags.LEAVES)) to = "flesh_leaves";
-        else if (st.is(BlockTags.PLANKS)) to = "flesh_planks";
-        else if (b instanceof StairBlock) to = "flesh_stair";
-        else if (b instanceof SlabBlock) to = "flesh_slab";
-        else if (b instanceof FenceBlock) to = "flesh_fence";
-        else if (b instanceof FenceGateBlock) to = "flesh_gate";
-        else if (b instanceof DoorBlock) to = "flesh_door";
-        else if (b instanceof TrapDoorBlock) to = "flesh_trapdoor";
-        else if (b == Blocks.GRASS_BLOCK || b == Blocks.PODZOL || b == Blocks.MYCELIUM || b == Blocks.DIRT_PATH || b == Blocks.FARMLAND) to = "flesh_grass";
+        else if (st.is(BlockTags.PLANKS)) { to = "flesh_planks"; kind = 3; }
+        else if (b instanceof StairBlock) { to = "flesh_stair"; kind = 3; }
+        else if (b instanceof SlabBlock) { to = "flesh_slab"; kind = 3; }
+        else if (b instanceof FenceBlock) { to = "flesh_fence"; kind = 3; }
+        else if (b instanceof FenceGateBlock) { to = "flesh_gate"; kind = 3; }
+        else if (b instanceof DoorBlock || st.is(BlockTags.BEDS) || b instanceof net.minecraft.world.level.block.TorchBlock
+                || b instanceof net.minecraft.world.level.block.LanternBlock || b instanceof net.minecraft.world.level.block.CampfireBlock
+                || b instanceof net.minecraft.world.level.block.IronBarsBlock || st.is(BlockTags.WOOL_CARPETS)
+                || b instanceof net.minecraft.world.level.block.FlowerPotBlock || b == Blocks.GLASS) kind = 4;
+        else if (st.is(BlockTags.WOOL)) kind = 3;
+        else if (b instanceof TrapDoorBlock) { to = "flesh_trapdoor"; kind = 3; }
+        else if (b == Blocks.GRASS_BLOCK || b == Blocks.PODZOL || b == Blocks.MYCELIUM) { to = "flesh_grass"; kind = 2; }
+        else if (b == Blocks.DIRT_PATH || b == Blocks.FARMLAND) to = "rotting_flesh_dirt";
         else if (st.is(BlockTags.DIRT) || b == Blocks.CLAY) to = "flesh_dirt";
         else if (st.is(BlockTags.SAND) || b == Blocks.SANDSTONE || b == Blocks.RED_SANDSTONE) to = "flesh_sand";
         else if (b == Blocks.GRAVEL) to = "rotting_flesh_sand";
-        else if (b == Blocks.DEEPSLATE || b == Blocks.TUFF || b == Blocks.COBBLESTONE || b == Blocks.MOSSY_COBBLESTONE
-                || b == Blocks.STONE_BRICKS || b == Blocks.MOSSY_STONE_BRICKS || b == Blocks.HAY_BLOCK
-                || b == Blocks.COBBLED_DEEPSLATE) to = "rotting_flesh_block";
+        else if (b == Blocks.COBBLESTONE || b == Blocks.MOSSY_COBBLESTONE || b == Blocks.STONE_BRICKS || b == Blocks.MOSSY_STONE_BRICKS
+                || b == Blocks.HAY_BLOCK || b == Blocks.WHITE_TERRACOTTA || b == Blocks.YELLOW_TERRACOTTA) { to = "rotting_flesh_block"; kind = 3; }
+        else if (b == Blocks.DEEPSLATE || b == Blocks.TUFF || b == Blocks.COBBLED_DEEPSLATE) to = "rotting_flesh_block";
         else if (st.is(BlockTags.BASE_STONE_OVERWORLD) || st.is(Tags.Blocks.ORES) || b == Blocks.TERRACOTTA
                 || b == Blocks.SMOOTH_STONE || b == Blocks.CALCITE) to = "flesh_block";
         else if (st.is(BlockTags.FLOWERS) || b == Blocks.GRASS || b == Blocks.FERN || b == Blocks.TALL_GRASS
-                || b == Blocks.LARGE_FERN || b == Blocks.DEAD_BUSH || b instanceof CropBlock || st.is(BlockTags.SAPLINGS)) {
+                || b == Blocks.LARGE_FERN || b == Blocks.DEAD_BUSH || b instanceof CropBlock || st.is(BlockTags.SAPLINGS)
+                || b == Blocks.SWEET_BERRY_BUSH || b == Blocks.PUMPKIN || b == Blocks.MELON) {
             to = "tooth_bush";
-            plant = true;
+            kind = 1;
         }
-        if (to == null) return NONE;
-        Block target = fth(to);
-        if (target == null) return NONE;
-        BlockState out = target.defaultBlockState();
-        if (!plant) {
-            for (Property<?> p : st.getProperties()) out = copy(st, out, p);
-        } else {
-            PLANTS.add(st);
+        if (to == null && kind == 0 && !chest) return KEEP;
+        Rule r = new Rule();
+        r.kind = kind;
+        r.chest = chest;
+        Block target = to == null ? null : fth(to);
+        if (target != null) {
+            BlockState out = target.defaultBlockState();
+            if (kind != 1) {
+                for (Property<?> p : st.getProperties()) out = copy(st, out, p);
+            }
+            r.target = out;
         }
-        return out;
+        return r;
     }
 
     private static <T extends Comparable<T>> BlockState copy(BlockState from, BlockState to, Property<T> p) {
         return to.hasProperty(p) ? to.setValue(p, from.getValue(p)) : to;
     }
 
-    /** Покинуті села: у вимірі плоті немає ні жителів, ні големів, ні худоби. */
+    /** Скрині покинутих сіл: порожні або з плоттю, здобиччю з монстрів чи речами зараження. */
+    private static void loot(ServerLevel level, BlockPos pos) {
+        if (!(level.getBlockEntity(pos) instanceof net.minecraft.world.level.block.entity.RandomizableContainerBlockEntity box)) return;
+        box.setLootTable(null, 0L);
+        box.clearContent();
+        if (level.random.nextInt(100) < 35) return; // порожньо
+        String[] pool = {"flesh_that_hates:flesh", "flesh_that_hates:flesh", "flesh_that_hates:flesh", "minecraft:rotten_flesh",
+                "minecraft:rotten_flesh", "minecraft:bone", "minecraft:bone", "minecraft:string", "minecraft:spider_eye",
+                "minecraft:gunpowder", "minecraft:arrow", "flesh_that_hates:flesh_veins", "flesh_that_hates:tooth_bush",
+                "flesh_that_hates:flesh_roots", "flesh_that_hates:cooked_flesh", "minecraft:ender_pearl", "minecraft:slime_ball"};
+        int stacks = 1 + level.random.nextInt(5);
+        for (int i = 0; i < stacks; i++) {
+            Item item = ForgeRegistries.ITEMS.getValue(new ResourceLocation(pool[level.random.nextInt(pool.length)]));
+            if (item == null || item == Items.AIR) continue;
+            int slot = level.random.nextInt(box.getContainerSize());
+            if (box.getItem(slot).isEmpty()) box.setItem(slot, new ItemStack(item, 1 + level.random.nextInt(4)));
+        }
+    }
+
+    private static final String[] ALL_MOBS = {"scp_6101", "scp_6101", "scp_6102", "scp_6102", "scp_6103", "scp_6103", "scp_6104", "scp_6105",
+            "scp_6107", "scp_6108", "scp_6109", "scp_61010", "scp_61011", "infected_pillager"};
+
+    /** Будь-який моб зараження (у вимірі плоті живуть усі). */
+    static EntityType<?> anyMob(ServerLevel level) {
+        for (int i = 0; i < 6; i++) {
+            ResourceLocation id = new ResourceLocation("flesh_that_hates", ALL_MOBS[level.random.nextInt(ALL_MOBS.length)]);
+            if (ForgeRegistries.ENTITY_TYPES.containsKey(id)) return ForgeRegistries.ENTITY_TYPES.getValue(id);
+        }
+        return null;
+    }
+
+    private static boolean foreign(Entity e) {
+        return e instanceof AbstractVillager || e instanceof IronGolem || (e instanceof Animal && !isInfected(e));
+    }
+
+    /** Покинуті села: ні жителів, ні големів, ні котів чи худоби. Замість жителів селом ходять заражені. */
     @SubscribeEvent
     public static void onJoin(EntityJoinLevelEvent event) {
         if (event.getLevel().isClientSide() || !isFlesh(event.getLevel())) return;
         Entity e = event.getEntity();
-        if (e instanceof AbstractVillager || e instanceof IronGolem || (e instanceof Animal && !isInfected(e) && !e.isVehicle()
-                && e.getPersistentData().isEmpty())) {
-            event.setCanceled(true);
+        if (!foreign(e)) return;
+        event.setCanceled(true);
+        if (e instanceof AbstractVillager && MOBS.size() < 400) {
+            MOBS.add(new PendingMob(e.blockPosition(), e.level().random.nextInt(5) == 0 ? "infected_pillager" : "scp_6101"));
         }
     }
 
@@ -519,6 +616,38 @@ public final class FleshDim {
         long t = level.getGameTime();
         SpreadConfig cfg = SpreadConfig.get();
 
+        // руїни сіл: вибиті блоки прибираємо звичайним способом, щоб оновилося світло; скрині спорожнюємо
+        int budget = 2500;
+        while (budget > 0 && !RUINS.isEmpty()) {
+            Ruin r = RUINS.peek();
+            int cx = net.minecraft.world.level.ChunkPos.getX(r.chunk()), cz = net.minecraft.world.level.ChunkPos.getZ(r.chunk());
+            if (!level.hasChunk(cx, cz)) {
+                RUINS.poll();
+                if (t - r.time() < 6000L) RUINS.add(r); // чанк вивантажився: спробуємо пізніше
+                break;
+            }
+            RUINS.poll();
+            for (BlockPos p : r.remove()) level.setBlock(p, Blocks.AIR.defaultBlockState(), 18);
+            for (BlockPos p : r.chests()) loot(level, p);
+            budget -= r.remove().size() + 50;
+            if (r.remove().size() > 40) {
+                FleshSpread.LOGGER.info("Вимір плоті: руїни в чанку {} {} — вибито блоків {}, скринь {}", cx, cz, r.remove().size(), r.chests().size());
+            }
+        }
+        // заражені жителі замість звичайних
+        for (int i = 0; i < 6 && !MOBS.isEmpty(); i++) {
+            PendingMob m = MOBS.poll();
+            ResourceLocation id = new ResourceLocation("flesh_that_hates", m.type());
+            if (!level.hasChunkAt(m.pos()) || !ForgeRegistries.ENTITY_TYPES.containsKey(id)) continue;
+            Entity e = ForgeRegistries.ENTITY_TYPES.getValue(id).spawn(level, m.pos(), MobSpawnType.STRUCTURE);
+            if (e instanceof Mob mob) mob.setPersistenceRequired();
+        }
+        // чужих тут не буває (коти, худоба, жителі, големи)
+        if (t % 100L == 0L) {
+            for (ServerPlayer p : level.players()) {
+                for (Entity e : level.getEntities(p, p.getBoundingBox().inflate(96.0D, 64.0D, 96.0D), FleshDim::foreign)) e.discard();
+            }
+        }
         // великі інкубатори (спавнери 2 рівня) у нових чанках
         for (int i = 0; i < 4 && !NESTS.isEmpty(); i++) {
             PendingNest n = NESTS.poll();

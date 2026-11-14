@@ -23,6 +23,7 @@ public final class FsNet {
 
     public static void register() {
         CHANNEL.registerMessage(0, RaidFx.class, RaidFx::encode, RaidFx::decode, RaidFx::handle);
+        CHANNEL.registerMessage(1, CompassFx.class, CompassFx::encode, CompassFx::decode, CompassFx::handle);
     }
 
     public static void sendRaidFx(ServerPlayer player, boolean strong) {
@@ -35,6 +36,32 @@ public final class FsNet {
             CHANNEL.send(PacketDistributor.PLAYER.with(() -> player), new RaidFx(mode));
         } catch (Throwable t) {
             FleshSpread.LOGGER.warn("Не вдалося надіслати ефект рейду: {}", t.toString());
+        }
+    }
+
+    /** Кривавий компас: екран здригається кров'ю, а гравця розвертає в бік лігва (turn=false — лише ефект). */
+    public static void sendCompass(ServerPlayer player, float yaw, boolean turn) {
+        try {
+            CHANNEL.send(PacketDistributor.PLAYER.with(() -> player), new CompassFx(yaw, turn));
+        } catch (Throwable t) {
+            FleshSpread.LOGGER.warn("Не вдалося надіслати ефект компаса: {}", t.toString());
+        }
+    }
+
+    public record CompassFx(float yaw, boolean turn) {
+        static void encode(CompassFx m, FriendlyByteBuf buf) {
+            buf.writeFloat(m.yaw);
+            buf.writeBoolean(m.turn);
+        }
+
+        static CompassFx decode(FriendlyByteBuf buf) {
+            return new CompassFx(buf.readFloat(), buf.readBoolean());
+        }
+
+        static void handle(CompassFx m, Supplier<NetworkEvent.Context> ctx) {
+            NetworkEvent.Context c = ctx.get();
+            c.enqueueWork(() -> DistExecutor.unsafeRunWhenOn(Dist.CLIENT, () -> () -> RaidOverlay.compass(m.yaw, m.turn)));
+            c.setPacketHandled(true);
         }
     }
 

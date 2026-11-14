@@ -1,6 +1,8 @@
 {
   "replace": false,
   "values": [
-    "flesh_spread:flesh_wastes"
+    "flesh_spread:flesh_wastes",
+    "flesh_spread:flesh_plains",
+    "flesh_spread:flesh_barrens"
   ]
 }

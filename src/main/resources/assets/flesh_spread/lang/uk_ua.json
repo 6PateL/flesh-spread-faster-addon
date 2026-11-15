@@ -3,5 +3,6 @@
   "block.flesh_spread.living_flesh": "Жива плоть",
   "block.flesh_spread.flesh_portal": "Портал плоті",
   "block.flesh_spread.flesh_heart": "Серце плоті",
-  "item.flesh_spread.blood_compass": "Кривавий компас"
+  "item.flesh_spread.blood_compass": "Кривавий компас",
+  "entity.flesh_spread.flesh_boss": "Утроба"
 }

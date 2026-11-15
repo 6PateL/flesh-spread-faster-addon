@@ -20,10 +20,13 @@ minecraft {
 
 repositories {
     mavenCentral()
+    // GeckoLib лежить у репозиторії (libs/), щоб збірка не залежала від стороннього maven
+    flatDir { dirs 'libs' }
 }
 
 dependencies {
     minecraft "net.minecraftforge:forge:${minecraft_version}-${forge_version}"
+    compileOnly fg.deobf("blank:geckolib-forge-1.20.1:4.8.4")
 }
 
 tasks.named('processResources', ProcessResources).configure {

@@ -30,6 +30,8 @@ import net.minecraft.world.phys.shapes.VoxelShape;
 public class FleshPortalBlock extends Block {
     public static final EnumProperty<Direction.Axis> AXIS = BlockStateProperties.HORIZONTAL_AXIS;
     public static final BooleanProperty ACTIVE = BooleanProperty.create("active");
+    /** Запечатаний портал: інфекцію переможено, мембрана стала синьою і більше нікуди не веде. */
+    public static final BooleanProperty SEALED = BooleanProperty.create("sealed");
     private static final VoxelShape X_SHAPE = Block.box(0.0D, 0.0D, 6.0D, 16.0D, 16.0D, 10.0D);
     private static final VoxelShape Z_SHAPE = Block.box(6.0D, 0.0D, 0.0D, 10.0D, 16.0D, 16.0D);
 
@@ -37,12 +39,12 @@ public class FleshPortalBlock extends Block {
         super(BlockBehaviour.Properties.of().mapColor(MapColor.COLOR_RED).noCollission().strength(-1.0F)
                 .sound(SoundType.SLIME_BLOCK).lightLevel(s -> s.getValue(ACTIVE) ? 11 : 3).noLootTable()
                 .pushReaction(PushReaction.BLOCK));
-        registerDefaultState(stateDefinition.any().setValue(AXIS, Direction.Axis.X).setValue(ACTIVE, false));
+        registerDefaultState(stateDefinition.any().setValue(AXIS, Direction.Axis.X).setValue(ACTIVE, false).setValue(SEALED, false));
     }
 
     @Override
     protected void createBlockStateDefinition(StateDefinition.Builder<Block, BlockState> builder) {
-        builder.add(AXIS, ACTIVE);
+        builder.add(AXIS, ACTIVE, SEALED);
     }
 
     @Override
@@ -63,14 +65,14 @@ public class FleshPortalBlock extends Block {
 
     @Override
     public void entityInside(BlockState state, Level level, BlockPos pos, Entity entity) {
-        if (!level.isClientSide) {
+        if (!level.isClientSide && !state.getValue(SEALED)) {
             FleshDim.onPortalTouch(level, pos, state, entity);
         }
     }
 
     @Override
     public void animateTick(BlockState state, Level level, BlockPos pos, RandomSource random) {
-        if (state.getValue(ACTIVE) && random.nextInt(3) == 0) {
+        if (state.getValue(ACTIVE) && !state.getValue(SEALED) && random.nextInt(3) == 0) {
             level.addParticle(ParticleTypes.CRIMSON_SPORE, pos.getX() + random.nextDouble(), pos.getY() + random.nextDouble(),
                     pos.getZ() + random.nextDouble(), (random.nextDouble() - 0.5D) * 0.2D, 0.02D, (random.nextDouble() - 0.5D) * 0.2D);
         }

@@ -1,16 +1,28 @@
 {
   "variants": {
-    "active=false,axis=x": {
+    "active=false,axis=x,sealed=false": {
       "model": "flesh_spread:block/flesh_portal_dormant_ns"
     },
-    "active=false,axis=z": {
-      "model": "flesh_spread:block/flesh_portal_dormant_ew"
+    "active=false,axis=x,sealed=true": {
+      "model": "flesh_spread:block/flesh_portal_sealed_ns"
     },
-    "active=true,axis=x": {
+    "active=true,axis=x,sealed=false": {
       "model": "flesh_spread:block/flesh_portal_ns"
     },
-    "active=true,axis=z": {
+    "active=true,axis=x,sealed=true": {
+      "model": "flesh_spread:block/flesh_portal_sealed_ns"
+    },
+    "active=false,axis=z,sealed=false": {
+      "model": "flesh_spread:block/flesh_portal_dormant_ew"
+    },
+    "active=false,axis=z,sealed=true": {
+      "model": "flesh_spread:block/flesh_portal_sealed_ew"
+    },
+    "active=true,axis=z,sealed=false": {
       "model": "flesh_spread:block/flesh_portal_ew"
+    },
+    "active=true,axis=z,sealed=true": {
+      "model": "flesh_spread:block/flesh_portal_sealed_ew"
     }
   }
 }

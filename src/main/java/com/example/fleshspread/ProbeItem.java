@@ -29,7 +29,7 @@ public class ProbeItem extends Item {
             () -> new ProbeItem(new Item.Properties().stacksTo(1).rarity(Rarity.EPIC)));
 
     private static final String[] MODES = {"Гравець", "Поселення", "Варвари", "Пасовища", "Промисловість", "ППО",
-            "Посилений рейд (поселення)", "Пришвидшити рейд за розкладом (−5 хв)", "Відкласти рейд за розкладом (+5 хв)", "Розлом плоті (портал-подія поруч)"};
+            "Посилений рейд (поселення)", "Пришвидшити рейд за розкладом (−5 хв)", "Відкласти рейд за розкладом (+5 хв)", "Вісник: Утроба і 3 розломи поруч", "Бій з Утробою тут (арена довкола вас)"};
     private static final long STEP = 6000L; // чверть дня
 
     public ProbeItem(Properties p) {
@@ -62,9 +62,17 @@ public class ProbeItem extends Item {
             int n = InfectedRaids.launchType(sl, cfg, RaidTargets.VILLAGE, sp, true);
             msg = n > 0 ? "Посилений рейд: нападів " + n : "Посилений рейд: цілей не знайдено";
         } else if (m == 9) {
-            net.minecraft.core.BlockPos at = FleshRifts.open(sl, sp.blockPosition(), 6, 12, "зонд, " + sp.getName().getString());
-            msg = at != null ? "Розлом відкривається на " + at.toShortString()
-                    : FleshDim.isFlesh(sl) ? "У вимірі плоті розломів не буває" : "Розлом: не знайшлося місця поруч";
+            net.minecraft.core.BlockPos at = FleshRifts.herald(sl, sp.blockPosition(), "зонд, " + sp.getName().getString());
+            msg = at != null ? "Утроба виринає на " + at.toShortString()
+                    : FleshDim.isFlesh(sl) ? "У вимірі плоті вісника не буває" : FleshData.defeated(sl.getServer())
+                    ? "Інфекцію вже переможено" : "Вісник: немає місця або він уже поруч";
+        } else if (m == 10) {
+            if (FleshBoss.near(sl, sp.blockPosition(), 150.0D).isEmpty()) {
+                FleshDim.startFight(sl, sp.blockPosition(), 40, "зонд, " + sp.getName().getString());
+                msg = "Бій з Утробою почато (у креативі вона вас не бачить)";
+            } else {
+                msg = "Утроба вже поруч";
+            }
         } else if (m == 7 || m == 8) {
             long s = InfectedRaids.shift(sl.getServer().overworld(), m == 7 ? -STEP : STEP);
             msg = (m == 7 ? "Рейд пришвидшено" : "Рейд відкладено") + ": залишилось "

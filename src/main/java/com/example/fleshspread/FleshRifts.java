@@ -176,6 +176,61 @@ public final class FleshRifts {
         return null;
     }
 
+    /**
+     * Подія звичайного світу: поки Утробу не вбито, вона виринає неподалік від гравця, відкриває поруч три розломи,
+     * час від часу кричить (тоді з розломів виходять заражені) і знову закопується, а розломи зникають. Убити її тут
+     * не можна, сама вона не нападає.
+     */
+    public static BlockPos herald(ServerLevel level, BlockPos around, String why) {
+        if (FleshDim.isFlesh(level) || FleshData.defeated(level.getServer())) return null;
+        if (!FleshBoss.near(level, around, 200.0D).isEmpty()) return null;
+        SpreadConfig cfg = SpreadConfig.get();
+        for (int attempt = 0; attempt < 10; attempt++) {
+            double ang = level.random.nextDouble() * Math.PI * 2.0D;
+            double dist = cfg.heraldDistanceMin + level.random.nextDouble() * Math.max(1, cfg.heraldDistanceMax - cfg.heraldDistanceMin);
+            BlockPos s = Nests.findSurface(level, (int) (around.getX() + Math.cos(ang) * dist), (int) (around.getZ() + Math.sin(ang) * dist));
+            if (s == null) continue;
+            FleshBoss boss = FleshDim.BOSS.get().create(level);
+            if (boss == null) return null;
+            // обличчям до гравця
+            float yaw = (float) (Math.toDegrees(Math.atan2(around.getZ() - s.getZ(), around.getX() - s.getX())) - 90.0D);
+            boss.moveTo(s.getX() + 0.5D, s.getY(), s.getZ() + 0.5D, yaw, 0.0F);
+            boss.makeHerald(Math.max(20, cfg.riftLifetimeSeconds) * 20);
+            level.addFreshEntity(boss);
+            FleshDim.sound(level, s, "flesh_that_hates:entity.call", 10.0F, 0.45F);
+            Component msg = Component.literal("☣ Земля здригається: Утроба виринає поруч (" + s.getX() + ", " + s.getY() + ", " + s.getZ() + ").")
+                    .withStyle(ChatFormatting.DARK_RED);
+            for (ServerPlayer p : level.players()) {
+                if (p.distanceToSqr(s.getX(), s.getY(), s.getZ()) < 160.0D * 160.0D) p.sendSystemMessage(msg);
+            }
+            FleshSpread.LOGGER.info("Вісник: Утроба виринає на {} ({}), триватиме {} с", s.toShortString(), why, cfg.riftLifetimeSeconds);
+            return s;
+        }
+        FleshSpread.LOGGER.info("Вісник: не знайшлося місця біля {} ({})", around.toShortString(), why);
+        return null;
+    }
+
+    /** Крик вісника: з кожного відкритого розлому поруч виходять заражені. */
+    static void pour(ServerLevel level, BlockPos around, double radius) {
+        SpreadConfig cfg = SpreadConfig.get();
+        int total = 0, rifts = 0;
+        for (Rift r : Data.get(level).rifts) {
+            if (r.phase != OPEN || r.base.distSqr(around) > radius * radius) continue;
+            rifts++;
+            total += FleshDim.summon(level, r.base.offset(1, 0, 0), cfg.riftMobs, 1, 3, null);
+        }
+        FleshSpread.LOGGER.info("Вісник кричить: розломів {}, вийшло заражених {}", rifts, total);
+    }
+
+    /** Вісник закопався: розломи поруч затягуються. */
+    static void closeNear(ServerLevel level, BlockPos around, double radius) {
+        Data data = Data.get(level);
+        for (Rift r : data.rifts) {
+            if (r.base.distSqr(around) <= radius * radius) r.expire = 0L;
+        }
+        data.setDirty();
+    }
+
     // ------------------------------------------------------------------ життя розломів
 
     @SubscribeEvent
@@ -185,10 +240,16 @@ public final class FleshRifts {
         if (!cfg.enabled || !cfg.dimensions.contains(level.dimension().location().toString())) return;
         long now = level.getGameTime();
         if (now % 6L != 0L) return;
+        boolean won = FleshData.defeated(level.getServer());
+        if (won && now % 120L == 0L) { // інфекцію переможено: заражені, що лишилися у світі, зникають
+            for (ServerPlayer p : level.players()) {
+                for (net.minecraft.world.entity.Entity e : level.getEntities(p, p.getBoundingBox().inflate(128.0D), FleshDim::isInfected)) e.discard();
+            }
+        }
         Data data = Data.get(level);
 
         // розклад: часто, але ненадовго
-        if (cfg.riftsEnabled && !level.players().isEmpty()) {
+        if (cfg.riftsEnabled && !won && !level.players().isEmpty()) {
             if (data.next == 0L) {
                 data.next = now + interval(level, cfg);
                 data.setDirty();
@@ -197,8 +258,7 @@ public final class FleshRifts {
                 for (ServerPlayer p : level.players()) {
                     if (!p.isSpectator()) ok.add(p);
                 }
-                BlockPos at = ok.isEmpty() ? null
-                        : open(level, ok.get(level.random.nextInt(ok.size())).blockPosition(), cfg.riftDistanceMin, cfg.riftDistanceMax, "подія");
+                BlockPos at = ok.isEmpty() ? null : herald(level, ok.get(level.random.nextInt(ok.size())).blockPosition(), "подія");
                 data.next = now + (at != null ? interval(level, cfg) : 600L);
                 data.setDirty();
             }
@@ -213,7 +273,7 @@ public final class FleshRifts {
                 growRow(level, r);
                 if (r.rows >= H) openMembrane(level, r, cfg);
             } else if (r.phase == OPEN) {
-                if (now >= r.expire) {
+                if (now >= r.expire || won) {
                     r.phase = CLOSE;
                     FleshDim.sound(level, r.base, "flesh_that_hates:entity.incubator_small.hurt", 4.0F, 0.5F);
                     for (int i = 1; i < W - 1; i++) {
@@ -269,11 +329,6 @@ public final class FleshRifts {
         FleshDim.sound(level, c, "flesh_that_hates:entity.call", 7.0F, 0.6F);
         FleshDim.sound(level, c, "flesh_that_hates:entity.herpad.summon", 4.0F, 0.7F);
         int mobs = FleshDim.summon(level, c.below(), cfg.riftMobs, 1, 3, null);
-        Component msg = Component.literal("☣ Поруч розкрився розлом плоті (" + c.getX() + ", " + c.getY() + ", " + c.getZ()
-                + "). Він скоро затягнеться.").withStyle(ChatFormatting.DARK_RED);
-        for (ServerPlayer p : level.players()) {
-            if (p.distanceToSqr(c.getX(), c.getY(), c.getZ()) < 128.0D * 128.0D) p.sendSystemMessage(msg);
-        }
         FleshSpread.LOGGER.info("Розлом плоті на {} відкрито, вийшло мобів: {}", r.base.toShortString(), mobs);
     }
 

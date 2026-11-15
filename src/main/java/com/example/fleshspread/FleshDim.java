@@ -84,7 +84,12 @@ public final class FleshDim {
             .mapColor(MapColor.COLOR_RED).strength(3.0F, 12.0F).sound(SoundType.SLIME_BLOCK).lightLevel(s -> 4)));
     public static final RegistryObject<Block> PORTAL = BLOCKS.register("flesh_portal", FleshPortalBlock::new);
     public static final RegistryObject<Block> HEART = BLOCKS.register("flesh_heart", () -> new Block(BlockBehaviour.Properties.of()
-            .mapColor(MapColor.COLOR_RED).strength(-1.0F, 3600000.0F).sound(SoundType.SLIME_BLOCK).lightLevel(s -> 13).noLootTable()));
+            .mapColor(MapColor.COLOR_RED).strength(5.0F, 1200.0F).sound(SoundType.SLIME_BLOCK).lightLevel(s -> 13).noLootTable()));
+
+    public static final DeferredRegister<EntityType<?>> ENTITIES = DeferredRegister.create(ForgeRegistries.ENTITY_TYPES, FleshSpread.MOD_ID);
+    public static final RegistryObject<EntityType<FleshBoss>> BOSS = ENTITIES.register("flesh_boss",
+            () -> EntityType.Builder.<FleshBoss>of(FleshBoss::new, net.minecraft.world.entity.MobCategory.MONSTER).sized(8.0F, 10.0F)
+                    .clientTrackingRange(16).updateInterval(1).build("flesh_boss"));
 
     public static final RegistryObject<Item> FRAME_ITEM = ProbeItem.ITEMS.register("living_flesh",
             () -> new BlockItem(FRAME.get(), new Item.Properties()));
@@ -212,6 +217,12 @@ public final class FleshDim {
             COOLDOWN.put(player.getUUID(), Math.max(until, now + 40L)); // поки стоїш у порталі, він не спрацює вдруге
             return;
         }
+        if (!isFlesh(level) && FleshData.defeated(level.getServer())) {
+            COOLDOWN.put(player.getUUID(), now + 60L);
+            seal(level, pos);
+            player.displayClientMessage(Component.literal("Інфекцію переможено. Портал запечатано назавжди.").withStyle(ChatFormatting.AQUA), true);
+            return;
+        }
         if (!active) {
             COOLDOWN.put(player.getUUID(), now + 60L);
             player.displayClientMessage(Component.literal("Портал спить. Киньте в нього артефакт Made in Heaven.")
@@ -226,6 +237,27 @@ public final class FleshDim {
         }
         COOLDOWN.put(player.getUUID(), now + 200L);
         travel(level, player);
+    }
+
+    /** Запечатує портал: уся з'єднана мембрана стає синьою і більше не працює. */
+    static int seal(ServerLevel level, BlockPos pos) {
+        Set<BlockPos> done = new HashSet<>();
+        ArrayDeque<BlockPos> queue = new ArrayDeque<>();
+        queue.add(pos);
+        done.add(pos);
+        int n = 0;
+        while (!queue.isEmpty() && done.size() < 600) {
+            BlockPos p = queue.poll();
+            BlockState st = level.getBlockState(p);
+            if (!st.is(PORTAL.get())) continue;
+            level.setBlock(p, st.setValue(FleshPortalBlock.SEALED, true).setValue(FleshPortalBlock.ACTIVE, true), 18);
+            n++;
+            for (Direction d : Direction.values()) {
+                BlockPos q = p.relative(d);
+                if (done.add(q) && level.getBlockState(q).is(PORTAL.get())) queue.add(q);
+            }
+        }
+        return n;
     }
 
     /** Артефакт пробуджує портал: рев рою, кров на екрані, з порталу вискакують заражені, артефакт повертається власнику. */
@@ -327,7 +359,21 @@ public final class FleshDim {
                 ServerLevel saved = server.getLevel(ResourceKey.create(Registries.DIMENSION, new ResourceLocation(keep.getString("fs_return_dim"))));
                 if (saved != null) dest = saved;
             }
+            List<Entity> squad = squad(from, player);
             player.teleportTo(dest, back.getX() + 0.5D, back.getY(), back.getZ() + 0.5D, player.getYRot(), player.getXRot());
+            int moved = moveSquad(squad, dest, back);
+            if (FleshData.defeated(server)) {
+                // портал, через який заходили, стає синім
+                int sealed = 0;
+                for (BlockPos q : BlockPos.betweenClosed(back.offset(-3, -3, -3), back.offset(3, 4, 3))) {
+                    BlockState st = dest.getBlockState(q);
+                    if (st.is(PORTAL.get()) && !st.getValue(FleshPortalBlock.SEALED)) sealed += seal(dest, q.immutable());
+                }
+                player.sendSystemMessage(Component.literal("Ви повернулися. Інфекцію переможено: вимір плоті закрито назавжди.")
+                        .withStyle(ChatFormatting.AQUA));
+                FleshSpread.LOGGER.info("Портал плоті: після перемоги запечатано {} блоків мембрани біля {}", sealed, back.toShortString());
+            }
+            FleshSpread.LOGGER.info("Портал плоті: з гравцем перейшло бійців: {}", moved);
             FleshSpread.LOGGER.info("Портал плоті: {} повернувся з виміру плоті до {} {}", player.getName().getString(),
                     dest.dimension().location(), back.toShortString());
             return;
@@ -344,12 +390,64 @@ public final class FleshDim {
         root.put(Player.PERSISTED_NBT_TAG, keep);
 
         BlockPos dest = arrival(flesh, player.getBlockX(), player.getBlockZ());
+        List<Entity> squad = squad(from, player);
         player.teleportTo(flesh, dest.getX() + 0.5D, dest.getY(), dest.getZ() + 0.5D, 180.0F, 0.0F);
+        int moved = moveSquad(squad, flesh, dest);
+        if (moved > 0) {
+            player.sendSystemMessage(Component.literal("З вами пройшло бійців: " + moved).withStyle(ChatFormatting.GRAY));
+        }
+        FleshSpread.LOGGER.info("Портал плоті: з гравцем перейшло бійців: {}", moved);
         sound(flesh, dest, "flesh_that_hates:entity.call", 3.0F, 0.5F);
         player.sendSystemMessage(Component.literal("Ви у вимірі плоті. Десь тут спить Серце плоті — кривавий компас вкаже шлях.")
                 .withStyle(ChatFormatting.DARK_RED));
         FleshSpread.LOGGER.info("Портал плоті: {} увійшов у вимір плоті, прибуття {} (лігво боса: {})", player.getName().getString(),
                 dest.toShortString(), FleshData.get(flesh).boss == null ? "?" : FleshData.get(flesh).boss.toShortString());
+    }
+
+    /**
+     * Підрозділ гравця: його рекрути (мод Recruits) у радіусі 24 блоків від порталу. Вони проходять портал разом із ним
+     * (і туди, і назад), тож військо можна привести на бій, зібравши його біля порталу.
+     */
+    private static List<Entity> squad(ServerLevel level, ServerPlayer player) {
+        List<Entity> out = new ArrayList<>();
+        for (Entity e : level.getEntities(player, player.getBoundingBox().inflate(24.0D, 10.0D, 24.0D),
+                x -> x.isAlive() && x.getClass().getName().startsWith("com.talhanation.recruits."))) {
+            try {
+                Object owner = e.getClass().getMethod("getOwnerUUID").invoke(e);
+                if (player.getUUID().equals(owner) && out.size() < 60) out.add(e);
+            } catch (Throwable ignored) {
+                // не рекрут або інша версія моду
+            }
+        }
+        return out;
+    }
+
+    private static int moveSquad(List<Entity> squad, ServerLevel dest, BlockPos at) {
+        int moved = 0;
+        for (Entity e : squad) {
+            try {
+                e.getPersistentData().putBoolean("fs_guest", true);
+                double x = at.getX() + 0.5D + (dest.random.nextDouble() - 0.5D) * 6.0D;
+                double z = at.getZ() + 1.5D + dest.random.nextDouble() * 5.0D;
+                final net.minecraft.world.phys.Vec3 to = new net.minecraft.world.phys.Vec3(x, at.getY(), z);
+                Entity moved2 = e.changeDimension(dest, new net.minecraftforge.common.util.ITeleporter() {
+                    @Override
+                    public net.minecraft.world.level.portal.PortalInfo getPortalInfo(Entity entity, ServerLevel d,
+                            java.util.function.Function<ServerLevel, net.minecraft.world.level.portal.PortalInfo> def) {
+                        return new net.minecraft.world.level.portal.PortalInfo(to, net.minecraft.world.phys.Vec3.ZERO, entity.getYRot(), entity.getXRot());
+                    }
+
+                    @Override
+                    public boolean playTeleportSound(ServerPlayer p, ServerLevel a, ServerLevel b) {
+                        return false;
+                    }
+                });
+                if (moved2 != null) moved++;
+            } catch (Throwable t) {
+                FleshSpread.LOGGER.warn("Портал плоті: бійця не вдалося перевести: {}", t.toString());
+            }
+        }
+        return moved;
     }
 
     /** Знаходить портал повернення поруч або будує новий. Повертає місце, де з'явиться гравець. */
@@ -365,30 +463,7 @@ public final class FleshDim {
         int y = Math.max(flesh.getMinBuildHeight() + 6, flesh.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z));
         y = Math.min(y, flesh.getMaxBuildHeight() - 10);
         BlockPos base = new BlockPos(x, y, z);
-        Block floor = fth("rotting_flesh_block");
-        BlockState floorState = floor != null ? floor.defaultBlockState() : FRAME.get().defaultBlockState();
-        // майданчик і вільне місце
-        for (int dx = -1; dx <= 4; dx++) {
-            for (int dz = -2; dz <= 3; dz++) {
-                BlockPos f = base.offset(dx, -1, dz);
-                if (flesh.getBlockState(f).getCollisionShape(flesh, f).isEmpty() || !flesh.getFluidState(f).isEmpty()) {
-                    flesh.setBlock(f, floorState, 3);
-                }
-                for (int dy = 0; dy <= 5; dy++) flesh.setBlock(base.offset(dx, dy, dz), Blocks.AIR.defaultBlockState(), 3);
-            }
-        }
-        // рамка 4x5 уздовж осі X і вже пробуджена мембрана всередині
-        BlockState membrane = PORTAL.get().defaultBlockState().setValue(FleshPortalBlock.AXIS, Direction.Axis.X)
-                .setValue(FleshPortalBlock.ACTIVE, true);
-        for (int i = 0; i <= 3; i++) {
-            for (int j = 0; j <= 4; j++) {
-                boolean edge = i == 0 || i == 3 || j == 0 || j == 4;
-                if (edge) flesh.setBlock(base.offset(i, j, 0), FRAME.get().defaultBlockState(), 3);
-            }
-        }
-        for (int i = 1; i <= 2; i++) {
-            for (int j = 1; j <= 3; j++) flesh.setBlock(base.offset(i, j, 0), membrane, 18);
-        }
+        buildPortal(flesh, base);
         data.arrivals.add(base);
         if (data.boss == null) {
             SpreadConfig cfg = SpreadConfig.get();
@@ -402,6 +477,32 @@ public final class FleshDim {
         data.setDirty();
         FleshSpread.LOGGER.info("Вимір плоті: збудовано портал повернення на {}", base.toShortString());
         return base.offset(2, 0, 2);
+    }
+
+    /** Будує рамку 4x5 уздовж осі X із пробудженою мембраною, майданчик під нею і вільне місце довкола. */
+    static void buildPortal(ServerLevel flesh, BlockPos base) {
+        Block floor = fth("rotting_flesh_block");
+        BlockState floorState = floor != null ? floor.defaultBlockState() : FRAME.get().defaultBlockState();
+        for (int dx = -1; dx <= 4; dx++) {
+            for (int dz = -2; dz <= 3; dz++) {
+                BlockPos f = base.offset(dx, -1, dz);
+                if (flesh.getBlockState(f).getCollisionShape(flesh, f).isEmpty() || !flesh.getFluidState(f).isEmpty()) {
+                    flesh.setBlock(f, floorState, 3);
+                }
+                for (int dy = 0; dy <= 5; dy++) flesh.setBlock(base.offset(dx, dy, dz), Blocks.AIR.defaultBlockState(), 3);
+            }
+        }
+        BlockState membrane = PORTAL.get().defaultBlockState().setValue(FleshPortalBlock.AXIS, Direction.Axis.X)
+                .setValue(FleshPortalBlock.ACTIVE, true);
+        for (int i = 0; i <= 3; i++) {
+            for (int j = 0; j <= 4; j++) {
+                boolean edge = i == 0 || i == 3 || j == 0 || j == 4;
+                if (edge) flesh.setBlock(base.offset(i, j, 0), FRAME.get().defaultBlockState(), 3);
+            }
+        }
+        for (int i = 1; i <= 2; i++) {
+            for (int j = 1; j <= 3; j++) flesh.setBlock(base.offset(i, j, 0), membrane, 18);
+        }
     }
 
     // ================================================================== усе з плоті: нові чанки виміру
@@ -593,14 +694,20 @@ public final class FleshDim {
     }
 
     private static boolean foreign(Entity e) {
+        if (e.getPersistentData().getBoolean("fs_guest") || e.isVehicle()) return false; // привели з собою через портал
         return e instanceof AbstractVillager || e instanceof IronGolem || (e instanceof Animal && !isInfected(e));
     }
 
     /** Покинуті села: ні жителів, ні големів, ні котів чи худоби. Замість жителів селом ходять заражені. */
     @SubscribeEvent
     public static void onJoin(EntityJoinLevelEvent event) {
-        if (event.getLevel().isClientSide() || !isFlesh(event.getLevel())) return;
+        if (event.getLevel().isClientSide()) return;
         Entity e = event.getEntity();
+        if (!isFlesh(event.getLevel())) {
+            // інфекцію переможено: у звичайному світі заражених більше не буває
+            if (isInfected(e) && event.getLevel() instanceof ServerLevel sl && FleshData.defeated(sl.getServer())) event.setCanceled(true);
+            return;
+        }
         if (!foreign(e)) return;
         event.setCanceled(true);
         if (e instanceof AbstractVillager && MOBS.size() < 400) {
@@ -615,6 +722,7 @@ public final class FleshDim {
         if (event.phase != TickEvent.Phase.END || !(event.level instanceof ServerLevel level) || !isFlesh(level)) return;
         long t = level.getGameTime();
         SpreadConfig cfg = SpreadConfig.get();
+        lairStep(level);
 
         // руїни сіл: вибиті блоки прибираємо звичайним способом, щоб оновилося світло; скрині спорожнюємо
         int budget = 2500;
@@ -664,68 +772,240 @@ public final class FleshDim {
         for (ServerPlayer p : level.players()) {
             if (p.isSpectator()) continue;
             // заражені довкола гравця
-            if (t % 200L == 0L && !p.isCreative()) {
+            if (t % 200L == 0L && !p.isCreative() && !FleshData.defeated(level.getServer())) {
                 int near = level.getEntitiesOfClass(Mob.class, p.getBoundingBox().inflate(40.0D, 24.0D, 40.0D),
                         m -> isInfected(m) && !Nests.isIncubator(m)).size();
                 if (near < cfg.fleshDimMobsNearPlayer) summon(level, p.blockPosition(), 2, 20, 32, null);
             }
-            if (data.boss == null) continue;
+            if (data.boss == null || FleshData.defeated(level.getServer())) continue;
             double dx = p.getX() - data.boss.getX(), dz = p.getZ() - data.boss.getZ();
             double d2 = dx * dx + dz * dz;
-            if (!data.bossBuilt && d2 < 96.0D * 96.0D && level.hasChunkAt(data.boss)) {
-                buildLair(level, data);
+            if (!data.lairDone && d2 < 150.0D * 150.0D) {
+                if (data.lairStage < 0) {
+                    data.lairStage = 0;
+                    data.setDirty();
+                    FleshSpread.LOGGER.info("Вимір плоті: починаю будувати лігво Утроби біля входу {}", data.boss.toShortString());
+                }
             }
-            if (data.bossBuilt && d2 < 28.0D * 28.0D && !p.getPersistentData().getBoolean("fs_lair_seen")) {
+            if (data.lairDone && d2 < 20.0D * 20.0D && !p.getPersistentData().getBoolean("fs_lair_seen")) {
                 p.getPersistentData().putBoolean("fs_lair_seen", true);
                 sound(level, data.boss, "flesh_that_hates:entity.call", 6.0F, 0.4F);
-                p.sendSystemMessage(Component.literal("☣ Ви знайшли лігво. Серце плоті ще спить… (бос з'явиться в наступному оновленні)")
+                p.sendSystemMessage(Component.literal("☣ Ви знайшли вхід у лігво. Унизу б'ється Серце плоті: розбийте його, якщо готові до бою.")
                         .withStyle(ChatFormatting.DARK_RED, ChatFormatting.BOLD));
-                FleshSpread.LOGGER.info("Вимір плоті: {} знайшов лігво боса на {}", p.getName().getString(), data.boss.toShortString());
+                FleshSpread.LOGGER.info("Вимір плоті: {} знайшов вхід у лігво на {}", p.getName().getString(), data.boss.toShortString());
             }
         }
     }
 
-    /** Заглушка лігва боса: кругла арена з гнилої плоті, стовпи, п'єдестал із Серцем плоті та інкубатори довкола. */
-    private static void buildLair(ServerLevel level, FleshData data) {
-        int x = data.boss.getX(), z = data.boss.getZ();
-        int y = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z);
-        BlockPos c = new BlockPos(x, y, z);
+    // ================================================================== лігво: печера-арена під землею
+
+    static final int LAIR_RADIUS = 46, LAIR_HEIGHT = 30, LAIR_OFFSET = 30;
+
+    /** Будує лігво поступово (по шару за тик), щоб не підвішувати сервер. Викликається щотику у вимірі плоті. */
+    private static void lairStep(ServerLevel level) {
+        FleshData data = FleshData.get(level);
+        if (data.boss == null || data.lairDone || data.lairStage < 0) return;
         Block rot = fth("rotting_flesh_block");
         Block log = fth("flesh_log");
         BlockState floor = rot != null ? rot.defaultBlockState() : FRAME.get().defaultBlockState();
         BlockState pillar = log != null ? log.defaultBlockState() : FRAME.get().defaultBlockState();
-        int r = 11;
-        for (int dx = -r; dx <= r; dx++) {
-            for (int dz = -r; dz <= r; dz++) {
-                if (dx * dx + dz * dz > r * r) continue;
-                for (int dy = -3; dy <= -1; dy++) level.setBlock(c.offset(dx, dy, dz), floor, 2);
-                for (int dy = 0; dy <= 12; dy++) level.setBlock(c.offset(dx, dy, dz), Blocks.AIR.defaultBlockState(), 2);
+        BlockState air = Blocks.AIR.defaultBlockState();
+        int ex = data.boss.getX(), ez = data.boss.getZ();       // вхід (колона з драбиною)
+        if (data.center == null) {
+            int surface = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, ex, ez);
+            int fy = Math.max(level.getMinBuildHeight() + 12, Math.min(surface - LAIR_HEIGHT - 22, 8));
+            data.center = new BlockPos(ex - LAIR_OFFSET, fy, ez);
+            data.boss = new BlockPos(ex, surface, ez);
+        }
+        BlockPos c = data.center;
+        int stage = data.lairStage++;
+        data.setDirty();
+        int R = LAIR_RADIUS;
+        if (stage <= LAIR_HEIGHT + 1) {
+            // шари знизу вгору: два шари підлоги, далі купол
+            int dy = stage - 2;
+            double k = dy < 0 ? 1.0D : Math.sqrt(Math.max(0.0D, 1.0D - (dy / (double) LAIR_HEIGHT) * (dy / (double) LAIR_HEIGHT) * 0.85D));
+            int r = (int) Math.round(R * k);
+            for (int dx = -r; dx <= r; dx++) {
+                for (int dz = -r; dz <= r; dz++) {
+                    if (dx * dx + dz * dz > r * r) continue;
+                    level.setBlock(c.offset(dx, dy, dz), dy < 0 ? floor : air, 2);
+                }
             }
+            return;
         }
-        for (int i = 0; i < 8; i++) {
-            double ang = i * Math.PI / 4.0D;
-            int px = (int) Math.round(Math.cos(ang) * 9.0D), pz = (int) Math.round(Math.sin(ang) * 9.0D);
-            int h = 5 + (i % 2) * 3;
+        // оздоблення
+        for (int i = 0; i < 10; i++) { // стовпи по колу зі світлом
+            double ang = i * Math.PI / 5.0D;
+            int px = (int) Math.round(Math.cos(ang) * (R - 8)), pz = (int) Math.round(Math.sin(ang) * (R - 8));
+            int h = 6 + (i % 3) * 3;
             for (int dy = 0; dy < h; dy++) level.setBlock(c.offset(px, dy, pz), pillar, 2);
-            level.setBlock(c.offset(px, h, pz), FRAME.get().defaultBlockState(), 2);
+            level.setBlock(c.offset(px, h, pz), Blocks.SHROOMLIGHT.defaultBlockState(), 2);
         }
+        for (int i = 0; i < 24; i++) { // світло в підлозі
+            double ang = i * Math.PI / 12.0D;
+            int rr = i % 2 == 0 ? 14 : 30;
+            level.setBlock(c.offset((int) Math.round(Math.cos(ang) * rr), -1, (int) Math.round(Math.sin(ang) * rr)), Blocks.SHROOMLIGHT.defaultBlockState(), 2);
+        }
+        // п'єдестал із Серцем плоті в центрі
         for (int dx = -1; dx <= 1; dx++) {
             for (int dz = -1; dz <= 1; dz++) level.setBlock(c.offset(dx, 0, dz), FRAME.get().defaultBlockState(), 2);
         }
-        level.setBlock(c.above(), HEART.get().defaultBlockState(), 3);
+        data.heart = c.above();
+        level.setBlock(data.heart, HEART.get().defaultBlockState(), 3);
+        // вхід: шахта з поверхні, у ній колона з драбинами з чотирьох боків
+        BlockPos e = new BlockPos(c.getX() + LAIR_OFFSET, c.getY(), c.getZ());
+        int top = data.boss.getY() + 1;
+        for (int y = c.getY(); y <= top; y++) {
+            for (int dx = -3; dx <= 3; dx++) {
+                for (int dz = -3; dz <= 3; dz++) {
+                    if (dx * dx + dz * dz > 10) continue;
+                    BlockPos q = new BlockPos(e.getX() + dx, y, e.getZ() + dz);
+                    level.setBlock(q, dx == 0 && dz == 0 ? pillar : air, 2);
+                }
+            }
+            for (Direction d : new Direction[]{Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST}) {
+                level.setBlock(new BlockPos(e.getX(), y, e.getZ()).relative(d), Blocks.LADDER.defaultBlockState()
+                        .setValue(net.minecraft.world.level.block.LadderBlock.FACING, d), 2);
+            }
+        }
+        for (int i = 0; i < 8; i++) { // позначка входу на поверхні
+            double ang = i * Math.PI / 4.0D;
+            int px = (int) Math.round(Math.cos(ang) * 7.0D), pz = (int) Math.round(Math.sin(ang) * 7.0D);
+            int gy = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, e.getX() + px, e.getZ() + pz);
+            for (int dy = 0; dy < 5 + (i % 2) * 2; dy++) level.setBlock(new BlockPos(e.getX() + px, gy + dy, e.getZ() + pz), pillar, 2);
+            level.setBlock(new BlockPos(e.getX() + px, gy + 5 + (i % 2) * 2, e.getZ() + pz), FRAME.get().defaultBlockState(), 2);
+        }
         EntityType<?> big = Nests.big();
         if (big != null) {
             for (int i = 0; i < 4; i++) {
                 double ang = i * Math.PI / 2.0D + Math.PI / 4.0D;
-                Entity e = big.spawn(level, c.offset((int) Math.round(Math.cos(ang) * 6.0D), 0, (int) Math.round(Math.sin(ang) * 6.0D)),
-                        MobSpawnType.STRUCTURE);
-                if (e instanceof Mob m) m.setPersistenceRequired();
+                Entity en = big.spawn(level, c.offset((int) Math.round(Math.cos(ang) * 22.0D), 0, (int) Math.round(Math.sin(ang) * 22.0D)), MobSpawnType.STRUCTURE);
+                if (en instanceof Mob m) m.setPersistenceRequired();
             }
         }
-        data.boss = c;
-        data.bossBuilt = true;
+        data.lairDone = true;
         data.setDirty();
-        FleshSpread.LOGGER.info("Вимір плоті: збудовано лігво боса (заглушка) на {}", c.toShortString());
+        FleshSpread.LOGGER.info("Вимір плоті: лігво Утроби готове — вхід {}, арена {} (радіус {}), Серце плоті {}", data.boss.toShortString(),
+                c.toShortString(), R, data.heart.toShortString());
+    }
+
+    /** Серце плоті розбито: вий, темрява, і з-під землі виринає Утроба. */
+    @SubscribeEvent
+    public static void onHeartBreak(net.minecraftforge.event.level.BlockEvent.BreakEvent event) {
+        if (!(event.getLevel() instanceof ServerLevel level) || !event.getState().is(HEART.get()) || !isFlesh(level)) return;
+        FleshData data = FleshData.get(level);
+        if (data.heart == null || !data.heart.equals(event.getPos()) || data.center == null) return;
+        if (FleshData.defeated(level.getServer()) || !FleshBoss.near(level, data.center, 120.0D).isEmpty()) return;
+        startFight(level, data.center, LAIR_RADIUS, event.getPlayer().getName().getString());
+    }
+
+    static void startFight(ServerLevel level, BlockPos center, int radius, String who) {
+        FleshBoss boss = BOSS.get().create(level);
+        if (boss == null) return;
+        double ang = level.random.nextDouble() * Math.PI * 2.0D;
+        boss.moveTo(center.getX() + 0.5D + Math.cos(ang) * 14.0D, center.getY(), center.getZ() + 0.5D + Math.sin(ang) * 14.0D,
+                level.random.nextFloat() * 360.0F, 0.0F);
+        boss.arena = center;
+        boss.arenaRadius = radius;
+        boss.wake();
+        level.addFreshEntity(boss);
+        sound(level, center, "flesh_that_hates:entity.call", 10.0F, 0.4F);
+        sound(level, center, "minecraft:entity.wither.spawn", 6.0F, 0.5F);
+        Component msg = Component.literal("☣ Серце плоті розбито. УТРОБА ПРОКИНУЛАСЬ.").withStyle(ChatFormatting.DARK_RED, ChatFormatting.BOLD);
+        for (ServerPlayer p : level.players()) {
+            if (p.distanceToSqr(center.getX(), center.getY(), center.getZ()) > 160.0D * 160.0D) continue;
+            p.addEffect(new net.minecraft.world.effect.MobEffectInstance(net.minecraft.world.effect.MobEffects.DARKNESS, 140, 0, false, false));
+            p.addEffect(new net.minecraft.world.effect.MobEffectInstance(net.minecraft.world.effect.MobEffects.BLINDNESS, 50, 0, false, false));
+            FsNet.sendFx(p, 5);
+            p.sendSystemMessage(msg);
+        }
+        FleshSpread.LOGGER.info("Бій з Утробою почався: арена {} (радіус {}), розбудив {}", center.toShortString(), radius, who);
+    }
+
+    /** Гравці втекли або загинули: Серце плоті знову на п'єдесталі. */
+    static void restoreHeart(ServerLevel level) {
+        FleshData data = FleshData.get(level);
+        if (data.heart != null && level.hasChunkAt(data.heart)) {
+            level.setBlock(data.heart, HEART.get().defaultBlockState(), 3);
+            sound(level, data.heart, "flesh_that_hates:entity.incubator.spawn", 4.0F, 0.6F);
+        }
+    }
+
+    /** Утробу вбито: інфекцію переможено. Заражені гинуть, перед гравцем відкривається портал додому. */
+    static void victory(ServerLevel level, FleshBoss boss) {
+        FleshData global = FleshData.global(level.getServer());
+        global.defeated = true;
+        global.setDirty();
+        BlockPos center = boss.arena != null ? boss.arena : boss.blockPosition();
+        for (Mob m : level.getEntitiesOfClass(Mob.class, new AABB(center).inflate(boss.arenaRadius + 30.0D, 60.0D, boss.arenaRadius + 30.0D),
+                FleshDim::isInfected)) m.discard();
+        Player near = level.getNearestPlayer(boss, 200.0D);
+        BlockPos at = near != null ? near.blockPosition().offset(-2, 0, -6) : center.offset(-2, 0, 8);
+        at = new BlockPos(at.getX(), center.getY(), at.getZ());
+        buildPortal(level, at);
+        sound(level, at, "minecraft:ui.toast.challenge_complete", 4.0F, 1.0F);
+        sound(level, at, "minecraft:block.end_portal.spawn", 4.0F, 1.0F);
+        Component msg = Component.literal("☣ УТРОБУ ВБИТО. Інфекцію переможено: у звичайному світі більше не буде ні заражених, ні розломів. "
+                + "Перед вами портал додому — після повернення вимір плоті закриється назавжди.").withStyle(ChatFormatting.GOLD, ChatFormatting.BOLD);
+        for (ServerPlayer p : level.getServer().getPlayerList().getPlayers()) p.sendSystemMessage(msg);
+        FleshSpread.LOGGER.info("ПЕРЕМОГА: Утробу вбито, інфекцію вимкнено; портал додому на {}", at.toShortString());
+    }
+
+    // ================================================================== смерть у вимірі плоті
+
+    /** Убитий Утробою втрачає не одне життя, а п'ять (мод Limited Lives). */
+    @SubscribeEvent(priority = net.minecraftforge.eventbus.api.EventPriority.LOWEST)
+    public static void onPlayerDeath(net.minecraftforge.event.entity.living.LivingDeathEvent event) {
+        if (!(event.getEntity() instanceof ServerPlayer p) || event.isCanceled()) return;
+        Entity killer = event.getSource().getEntity();
+        if (!(killer instanceof FleshBoss)) return;
+        try {
+            Object api = Class.forName("me.ichun.mods.limitedlives.api.LimitedLivesApi").getMethod("getApiImpl").invoke(null);
+            Class<?> iface = Class.forName("me.ichun.mods.limitedlives.api.IApi");
+            int deaths = (Integer) iface.getMethod("getPlayerDeaths", ServerPlayer.class).invoke(api, p);
+            iface.getMethod("setPlayerDeaths", ServerPlayer.class, int.class, boolean.class).invoke(api, p, deaths + 4, true);
+            FleshSpread.LOGGER.info("Утроба вбила {}: знято 5 життів (було смертей {}, стало {} + ця)", p.getName().getString(), deaths, deaths + 4);
+        } catch (Throwable t) {
+            FleshSpread.LOGGER.info("Утроба вбила {} (Limited Lives недоступний: {})", p.getName().getString(), t.toString());
+        }
+        p.sendSystemMessage(Component.literal("Утроба забрала п'ять життів.").withStyle(ChatFormatting.DARK_RED));
+    }
+
+    /** Артефакт Made in Heaven не випадає при смерті у вимірі плоті: він лишається з гравцем. */
+    @SubscribeEvent
+    public static void onPlayerDrops(net.minecraftforge.event.entity.living.LivingDropsEvent event) {
+        if (!(event.getEntity() instanceof ServerPlayer p) || !isFlesh(p.level())) return;
+        net.minecraft.nbt.ListTag kept = new net.minecraft.nbt.ListTag();
+        java.util.Iterator<ItemEntity> it = event.getDrops().iterator();
+        while (it.hasNext()) {
+            ItemEntity drop = it.next();
+            if (ARTIFACT.equals(ForgeRegistries.ITEMS.getKey(drop.getItem().getItem()))) {
+                kept.add(drop.getItem().save(new CompoundTag()));
+                it.remove();
+            }
+        }
+        if (kept.isEmpty()) return;
+        CompoundTag root = p.getPersistentData();
+        CompoundTag keep = root.getCompound(Player.PERSISTED_NBT_TAG);
+        keep.put("fs_kept", kept);
+        root.put(Player.PERSISTED_NBT_TAG, keep);
+    }
+
+    @SubscribeEvent
+    public static void onRespawn(net.minecraftforge.event.entity.player.PlayerEvent.PlayerRespawnEvent event) {
+        if (!(event.getEntity() instanceof ServerPlayer p)) return;
+        CompoundTag root = p.getPersistentData();
+        CompoundTag keep = root.getCompound(Player.PERSISTED_NBT_TAG);
+        if (!keep.contains("fs_kept")) return;
+        net.minecraft.nbt.ListTag kept = keep.getList("fs_kept", 10);
+        keep.remove("fs_kept");
+        root.put(Player.PERSISTED_NBT_TAG, keep);
+        for (int i = 0; i < kept.size(); i++) {
+            ItemStack stack = ItemStack.of(kept.getCompound(i));
+            if (!stack.isEmpty() && !p.getInventory().add(stack)) p.drop(stack, false);
+        }
+        p.sendSystemMessage(Component.literal("Артефакт лишився з вами.").withStyle(ChatFormatting.GOLD));
     }
 
     static List<Mob> infectedNear(ServerLevel level, Entity around, double radius) {

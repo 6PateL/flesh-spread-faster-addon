@@ -3,5 +3,6 @@
   "block.flesh_spread.living_flesh": "Living Flesh",
   "block.flesh_spread.flesh_portal": "Flesh Portal",
   "block.flesh_spread.flesh_heart": "Heart of Flesh",
-  "item.flesh_spread.blood_compass": "Blood Compass"
+  "item.flesh_spread.blood_compass": "Blood Compass",
+  "entity.flesh_spread.flesh_boss": "The Maw"
 }

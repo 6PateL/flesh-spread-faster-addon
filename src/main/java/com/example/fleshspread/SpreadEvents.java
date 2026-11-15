@@ -44,6 +44,7 @@ public final class SpreadEvents {
         if (event.phase != TickEvent.Phase.END || !(event.level instanceof ServerLevel level)) return;
         SpreadConfig cfg = SpreadConfig.get();
         if (!cfg.enabled || !cfg.dimensions.contains(level.dimension().location().toString())) return;
+        if (FleshData.defeated(level.getServer())) return; // інфекцію переможено: ні гнізд, ні рейдів
 
         processPending(level, cfg);
         if (cfg.raidsEnabled && level.dimension() == net.minecraft.world.level.Level.OVERWORLD && level.getGameTime() % 100 == 0) {

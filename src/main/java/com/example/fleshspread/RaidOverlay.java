@@ -78,9 +78,9 @@ public final class RaidOverlay {
         started = System.currentTimeMillis();
         mode = fxMode;
         strong = fxMode != 0;
-        FADE_IN = 2500L;
-        HOLD = 5000L;
-        FADE_OUT = 6000L;
+        FADE_IN = fxMode == 4 ? 300L : 2500L;       // 4 = крик Утроби: короткий червоний спалах
+        HOLD = fxMode == 4 ? 1500L : 5000L;
+        FADE_OUT = fxMode == 4 ? 2200L : 6000L;
         lastBeat = 0L;
     }
 
@@ -124,9 +124,9 @@ public final class RaidOverlay {
             g.fill(w - (i + 1) * sw, 0, w - i * sw, h, c);
         }
         // напис на початку
-        if (t < FADE_IN + HOLD && mode != 3) {
+        if (t < FADE_IN + HOLD && mode != 3 && mode != 4) {
             Minecraft mc = Minecraft.getInstance();
-            Component text = Component.literal(mode == 2 ? "\u2623 ВРАТА ПЛОТІ ВІДЧИНЕНО \u2623"
+            Component text = Component.literal(mode == 5 ? "\u2623 УТРОБА ПРОКИНУЛАСЬ \u2623" : mode == 2 ? "\u2623 ВРАТА ПЛОТІ ВІДЧИНЕНО \u2623"
                     : mode == 1 ? "\u2623 ПОСИЛЕНИЙ РЕЙД ЗАРАЖЕННЯ \u2623" : "\u2623 ЗАРАЖЕННЯ НАСТУПАЄ \u2623");
             int alpha = Math.max(8, (int) (255 * a));
             g.pose().pushPose();

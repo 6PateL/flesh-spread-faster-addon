@@ -24,7 +24,7 @@ public final class RaidEvents {
         ServerLevel ow = event.getServer().overworld();
         RaidData data = RaidData.get(ow);
         long left = data.next - ow.getGameTime();
-        if (!cfg.enabled || !cfg.raidsEnabled || cfg.raidWarnMinutes <= 0 || data.next == 0L || left <= 0L
+        if (!cfg.enabled || !cfg.raidsEnabled || FleshData.defeated(event.getServer()) || cfg.raidWarnMinutes <= 0 || data.next == 0L || left <= 0L
                 || left > cfg.raidWarnMinutes * 1200L) {
             if (!BAR.getPlayers().isEmpty()) BAR.removeAllPlayers();
             return;

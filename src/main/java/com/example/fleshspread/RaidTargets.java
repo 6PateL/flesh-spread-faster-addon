@@ -71,6 +71,14 @@ public final class RaidTargets {
         return out;
     }
 
+    /** Чи стоїть точка ближче ніж dist блоків до центру будь-якого поселення Recruits Villages. */
+    public static boolean nearVillage(MinecraftServer server, BlockPos pos, double dist) {
+        for (Village v : villages(server)) {
+            if (horizontal(v.center(), pos) < dist * dist) return true;
+        }
+        return false;
+    }
+
     /** Найближчі до гравця поселення; поселення гравця (його фракція / підкорені) мають перевагу. */
     public static List<Target> villages(ServerLevel level, ServerPlayer from, int count, double radius) {
         List<Village> near = new ArrayList<>();

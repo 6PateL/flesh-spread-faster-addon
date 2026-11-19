@@ -133,6 +133,20 @@ public final class FleshRifts {
 
     /** Відкриває розлом біля точки (шукає поверхню на відстані min..max). Повертає місце або null. */
     public static BlockPos open(ServerLevel level, BlockPos around, int min, int max, String why) {
+        return open(level, around, min, max, why, 0L);
+    }
+
+    /** Кількість відкритих (або ще не затягнутих) розломів поруч. */
+    static int openNear(ServerLevel level, BlockPos around, double radius) {
+        int n = 0;
+        for (Rift r : Data.get(level).rifts) {
+            if (r.phase != CLOSE && r.base.distSqr(around) <= radius * radius) n++;
+        }
+        return n;
+    }
+
+    /** {@code until} > 0: розлом живе до цього моменту (разом із вісником), інакше — звичайний час із конфігу. */
+    public static BlockPos open(ServerLevel level, BlockPos around, int min, int max, String why, long until) {
         if (FleshDim.isFlesh(level)) return null;
         SpreadConfig cfg = SpreadConfig.get();
         Data data = Data.get(level);
@@ -162,7 +176,7 @@ public final class FleshRifts {
             if (clash) continue;
             Rift r = new Rift();
             r.base = base;
-            r.expire = level.getGameTime() + 40L + Math.max(10, cfg.riftLifetimeSeconds) * 20L;
+            r.expire = until > 0L ? until : level.getGameTime() + 40L + Math.max(10, cfg.riftLifetimeSeconds) * 20L;
             for (int j = 0; j < H; j++) {
                 for (int i = 0; i < W; i++) r.saved.add(level.getBlockState(base.offset(i, j, 0)));
             }
@@ -185,11 +199,15 @@ public final class FleshRifts {
         if (FleshDim.isFlesh(level) || FleshData.defeated(level.getServer())) return null;
         if (!FleshBoss.near(level, around, 200.0D).isEmpty()) return null;
         SpreadConfig cfg = SpreadConfig.get();
-        for (int attempt = 0; attempt < 10; attempt++) {
+        for (int attempt = 0; attempt < 16; attempt++) {
             double ang = level.random.nextDouble() * Math.PI * 2.0D;
             double dist = cfg.heraldDistanceMin + level.random.nextDouble() * Math.max(1, cfg.heraldDistanceMax - cfg.heraldDistanceMin);
             BlockPos s = Nests.findSurface(level, (int) (around.getX() + Math.cos(ang) * dist), (int) (around.getZ() + Math.sin(ang) * dist));
             if (s == null) continue;
+            if (RaidTargets.nearVillage(level.getServer(), s, cfg.heraldVillageDistance)) {
+                FleshSpread.LOGGER.info("Вісник: місце {} надто близько до поселення, шукаю інше", s.toShortString());
+                continue;
+            }
             FleshBoss boss = FleshDim.BOSS.get().create(level);
             if (boss == null) return null;
             // обличчям до гравця
@@ -280,8 +298,10 @@ public final class FleshRifts {
                         for (int j = 1; j < H - 1; j++) level.setBlock(r.base.offset(i, j, 0), Blocks.AIR.defaultBlockState(), 18);
                     }
                     burst(level, r.base.offset(1, 2, 0), 40);
-                } else if (level.random.nextInt(4) == 0) {
-                    burst(level, r.base.offset(1 + level.random.nextInt(2), 1 + level.random.nextInt(3), 0), 4);
+                } else {
+                    if (level.random.nextInt(4) == 0) burst(level, r.base.offset(1 + level.random.nextInt(2), 1 + level.random.nextInt(3), 0), 4);
+                    // поки розлом відкритий, плоть розповзається довкола нього
+                    if (now % 30L == 0L) Nests.creep(level, r.base.offset(1, 0, 0), 14, 6);
                 }
             } else {
                 closeRow(level, r);

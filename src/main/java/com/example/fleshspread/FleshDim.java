@@ -799,7 +799,7 @@ public final class FleshDim {
 
     // ================================================================== лігво: печера-арена під землею
 
-    static final int LAIR_RADIUS = 46, LAIR_HEIGHT = 30, LAIR_OFFSET = 30;
+    static final int LAIR_RADIUS = 72, LAIR_HEIGHT = 44, LAIR_OFFSET = 50;
 
     /** Будує лігво поступово (по шару за тик), щоб не підвішувати сервер. Викликається щотику у вимірі плоті. */
     private static void lairStep(ServerLevel level) {
@@ -890,6 +890,12 @@ public final class FleshDim {
                 c.toShortString(), R, data.heart.toShortString());
     }
 
+    /** У звичайному світі ніхто не обирає вісника за ціль: його не можна вбити (у вимірі плоті — можна і треба). */
+    @SubscribeEvent
+    public static void onChangeTarget(net.minecraftforge.event.entity.living.LivingChangeTargetEvent event) {
+        if (event.getNewTarget() instanceof FleshBoss boss && !isFlesh(boss.level()) && boss.herald) event.setCanceled(true);
+    }
+
     /** Серце плоті розбито: вий, темрява, і з-під землі виринає Утроба. */
     @SubscribeEvent
     public static void onHeartBreak(net.minecraftforge.event.level.BlockEvent.BreakEvent event) {
@@ -904,7 +910,7 @@ public final class FleshDim {
         FleshBoss boss = BOSS.get().create(level);
         if (boss == null) return;
         double ang = level.random.nextDouble() * Math.PI * 2.0D;
-        boss.moveTo(center.getX() + 0.5D + Math.cos(ang) * 14.0D, center.getY(), center.getZ() + 0.5D + Math.sin(ang) * 14.0D,
+        boss.moveTo(center.getX() + 0.5D + Math.cos(ang) * 24.0D, center.getY(), center.getZ() + 0.5D + Math.sin(ang) * 24.0D,
                 level.random.nextFloat() * 360.0F, 0.0F);
         boss.arena = center;
         boss.arenaRadius = radius;

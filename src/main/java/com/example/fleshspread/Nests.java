@@ -91,6 +91,31 @@ public final class Nests {
         playSound(level, pos, "entity.incubator.grow");
     }
 
+    /** Плоть розповзається: count випадкових стовпців у радіусі стають плоттю (лише те, що мод вважає заражуваним). */
+    public static int creep(ServerLevel level, BlockPos center, int radius, int count) {
+        Block floor = block("flesh_block");
+        Block dirt = block("flesh_dirt");
+        Block sand = block("flesh_sand");
+        TagKey<Block> tFloor = tag("infectable_floor");
+        TagKey<Block> tDirt = tag("infectable_dirt");
+        TagKey<Block> tSand = tag("infectable_sand");
+        int changed = 0;
+        for (int i = 0; i < count; i++) {
+            double a = level.random.nextDouble() * Math.PI * 2.0D;
+            double r = Math.sqrt(level.random.nextDouble()) * radius;
+            int x = center.getX() + (int) Math.round(Math.cos(a) * r), z = center.getZ() + (int) Math.round(Math.sin(a) * r);
+            if (!level.hasChunkAt(new BlockPos(x, 64, z))) continue;
+            BlockPos p = new BlockPos(x, level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z) - 1, z);
+            BlockState s = level.getBlockState(p);
+            if (floor != null && s.is(tFloor)) level.setBlock(p, floor.defaultBlockState(), 3);
+            else if (dirt != null && s.is(tDirt)) level.setBlock(p, dirt.defaultBlockState(), 3);
+            else if (sand != null && s.is(tSand)) level.setBlock(p, sand.defaultBlockState(), 3);
+            else continue;
+            changed++;
+        }
+        return changed;
+    }
+
     /** Невелика заражена пляма навколо гнізда, щоб його було видно здалеку. */
     private static void infectPatch(ServerLevel level, BlockPos center, int radius) {
         if (radius <= 0) return;

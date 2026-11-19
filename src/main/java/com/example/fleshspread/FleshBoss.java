@@ -48,16 +48,17 @@ import java.util.List;
  * можна вбити, він не атакує, лише відкриває три розломи й криком виганяє з них заражених.
  */
 public class FleshBoss extends Monster implements GeoEntity {
-    public static final float SCALE = 4.0F;
+    public static final float SCALE = 8.0F;
     static final int IDLE = 0, MOVE = 1, BITE_WARN = 2, BITE = 3, TAIL_WARN = 4, TAIL = 5, SUMMON = 6, BURROW = 7, EMERGE = 8, DEATH = 9;
     private static final String[] ANIMS = {"idle", "move", "idle", "attack_bite", "idle", "attack_tail", "summon", "burrow", "emerge", "death"};
     private static final EntityDataAccessor<Integer> STATE = SynchedEntityData.defineId(FleshBoss.class, EntityDataSerializers.INT);
+    private static final EntityDataAccessor<Boolean> HERALD = SynchedEntityData.defineId(FleshBoss.class, EntityDataSerializers.BOOLEAN);
 
     private final AnimatableInstanceCache cache = GeckoLibUtil.createInstanceCache(this);
     private final FleshBossPart[] parts;
     // зміщення частин тіла вздовж тулуба (вперед = +) і по висоті, у блоках
-    private static final float[][] LAYOUT = {{19.0F, 4.0F, 9.0F, 9.0F}, {10.0F, 4.5F, 8.0F, 8.0F}, {-10.0F, 4.0F, 8.0F, 8.0F},
-            {-20.0F, 4.5F, 8.0F, 8.0F}, {-30.0F, 6.0F, 8.0F, 13.0F}};
+    private static final float[][] LAYOUT = {{38.0F, 8.0F, 18.0F, 18.0F}, {20.0F, 9.0F, 16.0F, 16.0F}, {-20.0F, 8.0F, 16.0F, 16.0F},
+            {-40.0F, 9.0F, 16.0F, 16.0F}, {-60.0F, 12.0F, 16.0F, 26.0F}};
 
     private final ServerBossEvent bar = new ServerBossEvent(Component.literal("Утроба"), BossEvent.BossBarColor.RED,
             BossEvent.BossBarOverlay.NOTCHED_10);
@@ -95,6 +96,7 @@ public class FleshBoss extends Monster implements GeoEntity {
     protected void defineSynchedData() {
         super.defineSynchedData();
         this.entityData.define(STATE, IDLE);
+        this.entityData.define(HERALD, false);
     }
 
     int state() {
@@ -151,7 +153,7 @@ public class FleshBoss extends Monster implements GeoEntity {
     }
 
     Vec3 headPos() {
-        return along(21.0F, 6.0F);
+        return along(42.0F, 12.0F);
     }
 
     // ------------------------------------------------------------------ шкода
@@ -188,9 +190,20 @@ public class FleshBoss extends Monster implements GeoEntity {
 
     private void dodge() {
         Vec3 f = forward();
-        double side = random.nextBoolean() ? 7.0D : -7.0D;
+        double side = random.nextBoolean() ? 12.0D : -12.0D;
         moveInArena(getX() + f.z * side, getZ() - f.x * side);
         FleshDim.sound((ServerLevel) level(), blockPosition(), "flesh_that_hates:entity.scuttler.ambient", 4.0F, 0.5F);
+    }
+
+    /** У звичайному світі вісника не можна вбити, тож ні рекрути, ні големи, ні жителі на нього не кидаються. */
+    @Override
+    public boolean canBeSeenAsEnemy() {
+        return !herald && super.canBeSeenAsEnemy();
+    }
+
+    @Override
+    public boolean isInvulnerable() {
+        return herald || super.isInvulnerable();
     }
 
     @Override
@@ -236,6 +249,7 @@ public class FleshBoss extends Monster implements GeoEntity {
         placeParts();
         if (level().isClientSide || !(level() instanceof ServerLevel level)) return;
         stateTicks++;
+        if (state() == EMERGE || state() == BURROW) dig(level);
         if (herald) {
             heraldTick(level);
             return;
@@ -260,7 +274,7 @@ public class FleshBoss extends Monster implements GeoEntity {
         switch (state()) {
             case EMERGE -> {
                 if (stateTicks == 10) {
-                    quake(level, position(), 9.0D, 10.0F);
+                    quake(level, position(), 16.0D, 10.0F);
                     FleshDim.sound(level, blockPosition(), "flesh_that_hates:entity.call", 8.0F, 0.5F);
                 }
                 if (stateTicks >= 48) attack(level, target, true); // щойно виринув — одразу атакує
@@ -274,7 +288,7 @@ public class FleshBoss extends Monster implements GeoEntity {
             case BITE_WARN -> {
                 face(target.position(), 10.0F);
                 if (stateTicks <= 12) strike = target.position(); // після цього ціль зафіксовано: є мить, щоб відбігти
-                if (stateTicks % 4 == 0 && strike != null) mark(level, strike, 3.0D);
+                if (stateTicks % 4 == 0 && strike != null) mark(level, strike, 5.0D);
                 if (stateTicks >= 22) {
                     state(BITE);
                     FleshDim.sound(level, blockPosition(), "flesh_that_hates:entity.snatcher.ambient", 6.0F, 0.5F);
@@ -286,20 +300,20 @@ public class FleshBoss extends Monster implements GeoEntity {
                     Vec3 d = new Vec3(strike.x - head.x, 0.0D, strike.z - head.z);
                     double len = d.length();
                     if (len > 0.5D) {
-                        double step = Math.min(len, 3.2D);
+                        double step = Math.min(len, 6.0D);
                         moveInArena(getX() + d.x / len * step, getZ() + d.z / len * step);
                     }
                 }
                 if (stateTicks == 9) {
                     Vec3 head = headPos();
-                    hit(level, new Vec3(head.x, getY() + 2.0D, head.z), 5.5D, 16.0F, true);
+                    hit(level, new Vec3(head.x, getY() + 2.0D, head.z), 9.0D, 16.0F, true);
                 }
                 if (stateTicks >= 24) rest();
             }
             case TAIL_WARN -> {
                 face(target.position(), 6.0F);
-                if (stateTicks == 1) strike = along(14.0F, 0.0F);
-                if (stateTicks % 4 == 0 && strike != null) mark(level, strike, 11.0D);
+                if (stateTicks == 1) strike = along(26.0F, 0.0F);
+                if (stateTicks % 4 == 0 && strike != null) mark(level, strike, 16.0D);
                 if (stateTicks >= 26) {
                     state(TAIL);
                     FleshDim.sound(level, blockPosition(), "flesh_that_hates:entity.bulwark.ambient", 6.0F, 0.5F);
@@ -307,7 +321,7 @@ public class FleshBoss extends Monster implements GeoEntity {
             }
             case TAIL -> {
                 if (stateTicks == 14 && strike != null) { // серп падає згори: удар по площі
-                    quake(level, strike, 11.0D, 18.0F);
+                    quake(level, strike, 16.0D, 18.0F);
                 }
                 if (stateTicks >= 28) rest();
             }
@@ -353,9 +367,9 @@ public class FleshBoss extends Monster implements GeoEntity {
         sinceAttack++;
         if (summonCooldown > 0) summonCooldown--;
         double dist = Math.sqrt(horizontal(headPos(), target.position()));
-        if (dist > 12.0D) {
+        if (dist > 22.0D) {
             Vec3 f = forward();
-            moveInArena(getX() + f.x * 0.42D, getZ() + f.z * 0.42D);
+            moveInArena(getX() + f.x * 0.6D, getZ() + f.z * 0.6D);
             if (state() != MOVE) state(MOVE);
         } else if (state() != IDLE) {
             state(IDLE);
@@ -364,7 +378,7 @@ public class FleshBoss extends Monster implements GeoEntity {
             cooldown--;
             return;
         }
-        if (dist <= 30.0D || sinceAttack > 120) attack(level, target, false);
+        if (dist <= 50.0D || sinceAttack > 120) attack(level, target, false);
     }
 
     /** Вибирає атаку: укус із ривка, серп по площі або крик, що кличе інкубатори й заражених. */
@@ -374,7 +388,7 @@ public class FleshBoss extends Monster implements GeoEntity {
         if (summonCooldown <= 0 && roll < (fresh ? 30 : 18)) {
             summonCooldown = 500;
             state(SUMMON);
-        } else if (dist < 16.0D && roll < 60) {
+        } else if (dist < 30.0D && roll < 60) {
             state(TAIL_WARN);
         } else {
             strike = target.position();
@@ -403,7 +417,7 @@ public class FleshBoss extends Monster implements GeoEntity {
     private void moveInArena(double x, double z) {
         if (arena != null && !herald) {
             double dx = x - (arena.getX() + 0.5D), dz = z - (arena.getZ() + 0.5D);
-            double max = Math.max(4.0D, arenaRadius - 14.0D);
+            double max = Math.max(4.0D, arenaRadius - 30.0D);
             double len = Math.sqrt(dx * dx + dz * dz);
             if (len > max) {
                 x = arena.getX() + 0.5D + dx / len * max;
@@ -416,10 +430,10 @@ public class FleshBoss extends Monster implements GeoEntity {
     private void relocate(ServerLevel level, ServerPlayer target) {
         for (int i = 0; i < 12; i++) {
             double ang = random.nextDouble() * Math.PI * 2.0D;
-            double dist = 18.0D + random.nextDouble() * 12.0D;
+            double dist = 30.0D + random.nextDouble() * 18.0D;
             double x = target.getX() + Math.cos(ang) * dist, z = target.getZ() + Math.sin(ang) * dist;
             double dx = x - arena.getX(), dz = z - arena.getZ();
-            if (dx * dx + dz * dz < (arenaRadius - 14.0D) * (arenaRadius - 14.0D) && horizontal(position(), new Vec3(x, 0, z)) > 15.0D * 15.0D) {
+            if (dx * dx + dz * dz < (arenaRadius - 30.0D) * (arenaRadius - 30.0D) && horizontal(position(), new Vec3(x, 0, z)) > 25.0D * 25.0D) {
                 setPos(x, arena.getY(), z);
                 break;
             }
@@ -466,7 +480,7 @@ public class FleshBoss extends Monster implements GeoEntity {
         int nests = 0;
         for (int i = 0; i < 2 && big != null; i++) {
             double ang = random.nextDouble() * Math.PI * 2.0D;
-            double dist = 10.0D + random.nextDouble() * Math.max(1.0D, arenaRadius - 22.0D);
+            double dist = 14.0D + random.nextDouble() * Math.max(1.0D, arenaRadius - 30.0D);
             BlockPos at = BlockPos.containing(arena.getX() + Math.cos(ang) * dist, arena.getY(), arena.getZ() + Math.sin(ang) * dist);
             Entity e = big.spawn(level, at, MobSpawnType.MOB_SUMMONED);
             if (e instanceof Mob m) m.setPersistenceRequired();
@@ -490,6 +504,57 @@ public class FleshBoss extends Monster implements GeoEntity {
                         || Math.abs(p.getX() - (arena.getX() + FleshDim.LAIR_OFFSET)) <= 3 && Math.abs(p.getZ() - arena.getZ()) <= 3) continue;
                 level.destroyBlock(p, false);
                 if (--budget <= 0) break;
+            }
+        }
+    }
+
+    /**
+     * Виривання з-під землі / закопування: уздовж усього тіла летять грудки землі, пил і кров, земля трясеться,
+     * а під тілом лишаються прогризені ями.
+     */
+    private void dig(ServerLevel level) {
+        Vec3 f = forward();
+        BlockPos under = BlockPos.containing(getX(), getY() - 1.0D, getZ());
+        BlockState ground = level.getBlockState(under);
+        if (ground.isAir()) ground = net.minecraft.world.level.block.Blocks.DIRT.defaultBlockState();
+        net.minecraft.core.particles.BlockParticleOption dirt = new net.minecraft.core.particles.BlockParticleOption(ParticleTypes.BLOCK, ground);
+        for (int i = -60; i <= 44; i += 6) {
+            double x = getX() + f.x * i, z = getZ() + f.z * i;
+            level.sendParticles(dirt, x, getY() + 0.5D, z, 14, 3.5D, 1.2D, 3.5D, 0.4D);
+            if (stateTicks % 3 == 0) {
+                level.sendParticles(ParticleTypes.CAMPFIRE_COSY_SMOKE, x, getY() + 0.5D, z, 2, 3.0D, 0.3D, 3.0D, 0.02D);
+                level.sendParticles(ParticleTypes.DAMAGE_INDICATOR, x, getY() + 1.0D, z, 2, 3.0D, 1.0D, 3.0D, 0.1D);
+            }
+        }
+        if (stateTicks % 8 == 0) {
+            FleshDim.sound(level, blockPosition(), "minecraft:block.rooted_dirt.break", 8.0F, 0.5F);
+            FleshDim.sound(level, blockPosition(), "minecraft:entity.ravager.step", 8.0F, 0.5F);
+        }
+        if (stateTicks == 2 || stateTicks == 30) gnaw(level);
+    }
+
+    /** Прогризені ями вздовж тіла: вибиває землю плямами (без блоків із вмістом і в межах розумного). */
+    private void gnaw(ServerLevel level) {
+        Vec3 f = forward();
+        int broken = 0;
+        for (int i = -56; i <= 44 && broken < 500; i += 3) {
+            double cx = getX() + f.x * i, cz = getZ() + f.z * i;
+            int r = 2 + random.nextInt(3);
+            for (int dx = -r; dx <= r; dx++) {
+                for (int dz = -r; dz <= r; dz++) {
+                    if (dx * dx + dz * dz > r * r || random.nextInt(4) == 0) continue;
+                    int x = (int) Math.floor(cx) + dx, z = (int) Math.floor(cz) + dz;
+                    int top = level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z) - 1;
+                    int depth = 1 + random.nextInt(3);
+                    for (int y = top; y > top - depth; y--) {
+                        BlockPos p = new BlockPos(x, y, z);
+                        BlockState st = level.getBlockState(p);
+                        if (st.isAir() || st.hasBlockEntity() || st.getDestroySpeed(level, p) < 0.0F || !st.getFluidState().isEmpty()
+                                || st.is(FleshDim.PORTAL.get()) || st.is(FleshDim.FRAME.get())) continue;
+                        level.setBlock(p, net.minecraft.world.level.block.Blocks.AIR.defaultBlockState(), 2);
+                        broken++;
+                    }
+                }
             }
         }
     }
@@ -519,7 +584,7 @@ public class FleshBoss extends Monster implements GeoEntity {
 
     private void deathTick(ServerLevel level) {
         if (stateTicks % 5 == 0) {
-            level.sendParticles(ParticleTypes.EXPLOSION, getX(), getY() + 4.0D, getZ(), 6, 12.0D, 3.0D, 12.0D, 0.0D);
+            level.sendParticles(ParticleTypes.EXPLOSION, getX(), getY() + 8.0D, getZ(), 8, 24.0D, 6.0D, 24.0D, 0.0D);
         }
         if (stateTicks >= 60) {
             bar.removeAllPlayers();
@@ -539,40 +604,72 @@ public class FleshBoss extends Monster implements GeoEntity {
         state(EMERGE);
     }
 
+    private long heraldEnd;
+    private int nests;
+
     void makeHerald(int lifeTicks) {
         herald = true;
+        this.entityData.set(HERALD, true);
         heraldLife = lifeTicks;
+        heraldEnd = level().getGameTime() + 48 + lifeTicks;
+        setInvulnerable(true);
         state(EMERGE);
     }
 
+    /**
+     * Вісник у звичайному світі: виринає, одразу стає на хвіст і так стоїть, час від часу кричить (заражені виходять із
+     * розломів), а довкола нього розповзається плоть і з'являється до двох інкубаторів. Коли час минає або розломи
+     * затягнулися, закопується, а розломи зникають.
+     */
     private void heraldTick(ServerLevel level) {
         int s = state();
+        long now = level.getGameTime();
         if (s == EMERGE && stateTicks >= 48) {
-            state(IDLE);
             int opened = 0;
             for (int i = 0; i < 3; i++) {
-                if (FleshRifts.open(level, blockPosition(), 16, 30, "вісник") != null) opened++;
+                if (FleshRifts.open(level, blockPosition(), 28, 50, "вісник", heraldEnd) != null) opened++;
             }
             FleshSpread.LOGGER.info("Вісник (Утроба) виринув на {}, розломів відкрито: {}", blockPosition().toShortString(), opened);
-        } else if (s == IDLE) {
-            Player near = level.getNearestPlayer(this, 96.0D);
-            if (near != null) face(near.position(), 2.0F);
-            if (--heraldLife <= 0) {
-                state(BURROW);
-                FleshDim.sound(level, blockPosition(), "flesh_that_hates:entity.incubator.grow", 6.0F, 0.5F);
-            } else if (stateTicks > 60 && stateTicks % 240 == 100) {
-                state(SUMMON);
+            state(SUMMON); // одразу стає на хвіст
+            scream(level, false);
+            return;
+        }
+        if (s == BURROW) {
+            if (stateTicks >= 48) {
+                FleshSpread.LOGGER.info("Вісник (Утроба) закопався на {}", blockPosition().toShortString());
+                discard();
             }
-        } else if (s == SUMMON) {
-            if (stateTicks == 22) {
-                scream(level, false);
-                FleshRifts.pour(level, blockPosition(), 40.0D);
+            return;
+        }
+        if (s != SUMMON) {
+            state(SUMMON);
+            return;
+        }
+        Player near = level.getNearestPlayer(this, 160.0D);
+        if (near != null) face(near.position(), 1.5F);
+        // плоть розповзається, інкубаторів не більше двох
+        if (stateTicks % 10 == 0) Nests.creep(level, blockPosition(), 26, 14);
+        if (nests < 2 && stateTicks % 300 == 150) {
+            EntityType<?> big = Nests.big();
+            BlockPos at = big == null ? null : Nests.findSurface(level, (int) (getX() + (random.nextDouble() - 0.5D) * 40.0D),
+                    (int) (getZ() + (random.nextDouble() - 0.5D) * 40.0D));
+            Entity e = at == null ? null : big.spawn(level, at, MobSpawnType.MOB_SUMMONED);
+            if (e != null) {
+                nests++;
+                FleshSpread.LOGGER.info("Вісник виростив інкубатор {} на {}", nests, at.toShortString());
             }
-            if (stateTicks >= 64) state(IDLE);
-        } else if (s == BURROW && stateTicks >= 48) {
-            FleshRifts.closeNear(level, blockPosition(), 48.0D);
-            FleshSpread.LOGGER.info("Вісник (Утроба) закопався на {}", blockPosition().toShortString());
-            discard();
+        }
+        if (stateTicks % 240 == 120) {
+            scream(level, false);
+            FleshRifts.pour(level, blockPosition(), 80.0D);
+        }
+        // час минув або всі розломи вже затягнулися — закопується
+        boolean riftsGone = stateTicks > 100 && FleshRifts.openNear(level, blockPosition(), 80.0D) == 0;
+        if (now >= heraldEnd || riftsGone) {
+            FleshRifts.closeNear(level, blockPosition(), 80.0D);
+            FleshSpread.LOGGER.info("Вісник закопується на {} ({})", blockPosition().toShortString(), riftsGone ? "розломи затягнулися" : "час минув");
+            state(BURROW);
+            FleshDim.sound(level, blockPosition(), "flesh_that_hates:entity.incubator.grow", 8.0F, 0.5F);
         }
     }
 
@@ -595,6 +692,8 @@ public class FleshBoss extends Monster implements GeoEntity {
         super.addAdditionalSaveData(tag);
         tag.putBoolean("Herald", herald);
         tag.putInt("HeraldLife", heraldLife);
+        tag.putLong("HeraldEnd", heraldEnd);
+        tag.putInt("Nests", nests);
         tag.putInt("ArenaRadius", arenaRadius);
         if (arena != null) tag.putLong("Arena", arena.asLong());
     }
@@ -604,6 +703,12 @@ public class FleshBoss extends Monster implements GeoEntity {
         super.readAdditionalSaveData(tag);
         herald = tag.getBoolean("Herald");
         heraldLife = tag.getInt("HeraldLife");
+        heraldEnd = tag.getLong("HeraldEnd");
+        nests = tag.getInt("Nests");
+        if (herald) {
+            setInvulnerable(true);
+            this.entityData.set(HERALD, true);
+        }
         if (tag.contains("ArenaRadius")) arenaRadius = tag.getInt("ArenaRadius");
         if (tag.contains("Arena")) arena = BlockPos.of(tag.getLong("Arena"));
     }
@@ -616,7 +721,8 @@ public class FleshBoss extends Monster implements GeoEntity {
             int s = Mth.clamp(state(), 0, ANIMS.length - 1);
             String name = "animation.flesh_heart_boss." + ANIMS[s];
             RawAnimation anim = s == IDLE || s == MOVE || s == BITE_WARN || s == TAIL_WARN ? RawAnimation.begin().thenLoop(name)
-                    : s == BURROW || s == DEATH ? RawAnimation.begin().thenPlayAndHold(name) : RawAnimation.begin().thenPlay(name);
+                    : s == BURROW || s == DEATH || (s == SUMMON && this.entityData.get(HERALD)) ? RawAnimation.begin().thenPlayAndHold(name)
+                    : RawAnimation.begin().thenPlay(name);
             return st.setAndContinue(anim);
         }));
     }

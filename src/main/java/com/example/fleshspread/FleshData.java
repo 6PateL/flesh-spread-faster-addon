@@ -21,6 +21,10 @@ public class FleshData extends SavedData {
     public int lairStage = -1;   // крок будівництва печери (-1 = не починали)
     public boolean lairDone;
     public int lairVersion;
+    public boolean fightActive;  // іде бій з Утробою (поки є гравці біля арени)
+    public int fightGen;         // номер бою: бос старого бою, що прогрузився пізніше, зникає
+    public BlockPos fightCenter;
+    public int fightRadius;
     public boolean defeated;     // лише в даних звичайного світу: інфекцію переможено
     public final List<BlockPos> arrivals = new ArrayList<>();
 
@@ -46,6 +50,10 @@ public class FleshData extends SavedData {
         d.lairDone = tag.getBoolean("lairDone");
         d.lairVersion = tag.getInt("lairVersion");
         d.defeated = tag.getBoolean("defeated");
+        d.fightActive = tag.getBoolean("fightActive");
+        d.fightGen = tag.getInt("fightGen");
+        d.fightRadius = tag.getInt("fightRadius");
+        if (tag.contains("fightCenter")) d.fightCenter = BlockPos.of(tag.getLong("fightCenter"));
         for (long l : tag.getLongArray("arrivals")) d.arrivals.add(BlockPos.of(l));
         return d;
     }
@@ -59,6 +67,10 @@ public class FleshData extends SavedData {
         tag.putBoolean("lairDone", lairDone);
         tag.putInt("lairVersion", lairVersion);
         tag.putBoolean("defeated", defeated);
+        tag.putBoolean("fightActive", fightActive);
+        tag.putInt("fightGen", fightGen);
+        tag.putInt("fightRadius", fightRadius);
+        if (fightCenter != null) tag.putLong("fightCenter", fightCenter.asLong());
         long[] a = new long[arrivals.size()];
         for (int i = 0; i < a.length; i++) a[i] = arrivals.get(i).asLong();
         tag.putLongArray("arrivals", a);

@@ -1063,6 +1063,13 @@ public final class FleshDim {
                 level.random.nextFloat() * 360.0F, 0.0F);
         boss.arena = center;
         boss.arenaRadius = radius;
+        FleshData fd = FleshData.get(level);
+        fd.fightActive = true;
+        fd.fightGen++;
+        fd.fightCenter = center;
+        fd.fightRadius = radius;
+        fd.setDirty();
+        boss.fightGen = fd.fightGen;
         boss.wake();
         level.addFreshEntity(boss);
         sound(level, center, "flesh_that_hates:entity.call", 10.0F, 0.4F);
@@ -1081,13 +1088,49 @@ public final class FleshDim {
     /** Серця немає, а бою немає (бос пропав будь-як): Серце повертається на п'єдестал. */
     private static void heartCheck(ServerLevel level) {
         FleshData data = FleshData.get(level);
-        if (!data.lairDone || data.heart == null || data.center == null || FleshData.defeated(level.getServer())) return;
+        if (data.fightActive || !data.lairDone || data.heart == null || data.center == null || FleshData.defeated(level.getServer())) return;
         if (!level.hasChunkAt(data.heart) || level.getBlockState(data.heart).is(HEART.get())) return;
-        for (Entity e : level.getAllEntities()) {
-            if (e instanceof FleshBoss b && !b.herald && b.isAlive()) return;
-        }
         level.setBlock(data.heart, HEART.get().defaultBlockState(), 3);
         FleshSpread.LOGGER.info("Вимір плоті: бою немає, Серце плоті повернуто на п'єдестал {}", data.heart.toShortString());
+    }
+
+    private static final Map<net.minecraft.resources.ResourceKey<Level>, Integer> AWAY = new HashMap<>();
+
+    /**
+     * Сторож бою (працює в будь-якому світі, навіть коли сам бос не тікає — він стоїть у чанку, що не оновлюється): якщо
+     * біля арени 10 с немає живих гравців, бій завершено — бос зникає (зараз або щойно прогрузиться), Серце повертається.
+     */
+    @SubscribeEvent
+    public static void onAnyLevelTick(TickEvent.LevelTickEvent event) {
+        if (event.phase != TickEvent.Phase.END || !(event.level instanceof ServerLevel level) || level.getGameTime() % 20L != 0L) return;
+        FleshData data = FleshData.get(level);
+        if (!data.fightActive || data.fightCenter == null) {
+            AWAY.remove(level.dimension());
+            return;
+        }
+        double r = data.fightRadius + 60.0D;
+        boolean anyone = false;
+        for (ServerPlayer p : level.players()) {
+            if (p.isAlive() && !p.isSpectator() && p.distanceToSqr(data.fightCenter.getX() + 0.5D, p.getY(), data.fightCenter.getZ() + 0.5D) < r * r) {
+                anyone = true;
+            }
+        }
+        int away = anyone ? 0 : AWAY.getOrDefault(level.dimension(), 0) + 1;
+        AWAY.put(level.dimension(), away);
+        if (away < 10) return;
+        data.fightActive = false;
+        data.setDirty();
+        AWAY.remove(level.dimension());
+        int gone = 0;
+        for (Entity e : level.getAllEntities()) {
+            if (e instanceof FleshBoss b && !b.herald && b.isAlive()) {
+                b.discard();
+                gone++;
+            }
+        }
+        if (isFlesh(level)) restoreHeart(level);
+        FleshSpread.LOGGER.info("Бій з Утробою скінчився: біля арени {} нікого 10 с; бос прибраний зараз: {} (решта зникне, щойно прогрузиться)",
+                data.fightCenter.toShortString(), gone);
     }
 
     /** Гравці втекли або загинули: Серце плоті знову на п'єдесталі. */
@@ -1104,6 +1147,15 @@ public final class FleshDim {
         FleshData global = FleshData.global(level.getServer());
         global.defeated = true;
         global.setDirty();
+        FleshData here = FleshData.get(level);
+        here.fightActive = false;
+        here.setDirty();
+        // трофей: Кишенькова утроба
+        BlockPos drop = boss.arena != null ? boss.arena.above(6) : boss.blockPosition();
+        ItemEntity trophy = new ItemEntity(level, drop.getX() + 0.5D, drop.getY(), drop.getZ() + 0.5D, new ItemStack(PocketMaw.ITEM.get()));
+        trophy.setGlowingTag(true);
+        trophy.setUnlimitedLifetime();
+        level.addFreshEntity(trophy);
         BlockPos center = boss.arena != null ? boss.arena : boss.blockPosition();
         for (Mob m : level.getEntitiesOfClass(Mob.class, new AABB(center).inflate(boss.arenaRadius + 30.0D, 60.0D, boss.arenaRadius + 30.0D),
                 FleshDim::isInfected)) m.discard();

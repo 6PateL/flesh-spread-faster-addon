@@ -1,0 +1,26 @@
+{
+  "type": "flesh_spread:pocket",
+  "generator": {
+    "type": "minecraft:flat",
+    "settings": {
+      "biome": "flesh_spread:pocket_meadow",
+      "lakes": false,
+      "features": false,
+      "structure_overrides": [],
+      "layers": [
+        {
+          "block": "minecraft:bedrock",
+          "height": 1
+        },
+        {
+          "block": "flesh_that_hates:rotting_flesh_dirt",
+          "height": 3
+        },
+        {
+          "block": "flesh_that_hates:rotting_flesh_grass",
+          "height": 1
+        }
+      ]
+    }
+  }
+}

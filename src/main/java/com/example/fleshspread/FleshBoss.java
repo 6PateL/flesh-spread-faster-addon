@@ -73,6 +73,7 @@ public class FleshBoss extends Monster implements GeoEntity {
     private float burrowMark = -1.0F;       // здоров'я, після якого треба закопатися
     private Vec3 strike;                    // куди націлено удар
     boolean herald;                         // вісник у звичайному світі
+    int fightGen = -1;                      // номер бою (див. FleshData.fightGen)
     private int heraldLife;
     BlockPos arena;                         // центр арени (підлога)
     int arenaRadius = 40;
@@ -233,6 +234,21 @@ public class FleshBoss extends Monster implements GeoEntity {
         return false;
     }
 
+    /** Смуга боса зникає, хоч би як він зник (зокрема коли чанк вивантажився разом із ним). */
+    @Override
+    public void onRemovedFromWorld() {
+        super.onRemovedFromWorld();
+        bar.removeAllPlayers();
+    }
+
+    /** Тіло завжди дивиться туди ж, куди й голова (без цього модель вертілася «сама по собі»). */
+    @Override
+    protected float tickHeadTurn(float a, float b) {
+        this.yBodyRot = this.getYRot();
+        this.yHeadRot = this.getYRot();
+        return b;
+    }
+
     @Override
     protected boolean shouldDespawnInPeaceful() {
         return false;
@@ -296,6 +312,13 @@ public class FleshBoss extends Monster implements GeoEntity {
             return;
         }
         if (arena == null) arena = blockPosition();
+        FleshData fd = FleshData.get(level);
+        if (state() != DEATH && (!fd.fightActive || fd.fightGen != fightGen)) {
+            // бій уже скінчився (гравці пішли), а цей бос прогрузився пізніше
+            FleshSpread.LOGGER.info("Утроба старого бою (№{}, зараз №{}, бій іде: {}) зникає", fightGen, fd.fightGen, fd.fightActive);
+            discard();
+            return;
+        }
         bar.setProgress(Mth.clamp(getHealth() / getMaxHealth(), 0.0F, 1.0F));
         if (tickCount % 20 == 0) {
             // смуга боса — у всіх, хто біля арени, навіть якщо модель ще не прогрузилась
@@ -742,6 +765,11 @@ public class FleshBoss extends Monster implements GeoEntity {
 
     /** Гравці втекли або загинули: бос іде під землю, Серце плоті повертається на п'єдестал. */
     void leave(ServerLevel level, String why) {
+        FleshData fd = FleshData.get(level);
+        if (fd.fightGen == fightGen) {
+            fd.fightActive = false;
+            fd.setDirty();
+        }
         FleshSpread.LOGGER.info("Утроба зникає ({}), здоров'я {}/{}; Серце плоті повернуто", why, (int) getHealth(), (int) getMaxHealth());
         FleshDim.restoreHeart(level);
         bar.removeAllPlayers();
@@ -856,6 +884,10 @@ public class FleshBoss extends Monster implements GeoEntity {
     void makeHerald(int lifeTicks) {
         herald = true;
         this.entityData.set(HERALD, true);
+        setYBodyRot(getYRot());
+        setYHeadRot(getYRot());
+        yBodyRotO = getYRot();
+        yHeadRotO = getYRot();
         heraldLife = lifeTicks;
         for (int i = 0; i < parts.length; i++) parts[i].resize(LAYOUT[i][2] * k(), LAYOUT[i][3] * k());
         heraldEnd = level().getGameTime() + 48 + lifeTicks;
@@ -961,6 +993,7 @@ public class FleshBoss extends Monster implements GeoEntity {
     public void addAdditionalSaveData(CompoundTag tag) {
         super.addAdditionalSaveData(tag);
         tag.putBoolean("Herald", herald);
+        tag.putInt("FightGen", fightGen);
         tag.putInt("HeraldLife", heraldLife);
         tag.putLong("HeraldEnd", heraldEnd);
         tag.putInt("Nests", nests);
@@ -972,6 +1005,7 @@ public class FleshBoss extends Monster implements GeoEntity {
     public void readAdditionalSaveData(CompoundTag tag) {
         super.readAdditionalSaveData(tag);
         herald = tag.getBoolean("Herald");
+        fightGen = tag.contains("FightGen") ? tag.getInt("FightGen") : -1;
         heraldLife = tag.getInt("HeraldLife");
         heraldEnd = tag.getLong("HeraldEnd");
         nests = tag.getInt("Nests");

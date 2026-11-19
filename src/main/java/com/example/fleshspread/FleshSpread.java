@@ -13,6 +13,7 @@ public class FleshSpread {
     public FleshSpread() {
         SpreadConfig.load();
         FsNet.register();
+        PocketMaw.ITEM.getId(); // реєстрація кишенькової утроби
         FleshDim.BLOCKS.register(FMLJavaModLoadingContext.get().getModEventBus());
         FleshDim.ENTITIES.register(FMLJavaModLoadingContext.get().getModEventBus());
         FMLJavaModLoadingContext.get().getModEventBus().addListener((net.minecraftforge.event.entity.EntityAttributeCreationEvent e) ->

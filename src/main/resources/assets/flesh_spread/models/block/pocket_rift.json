@@ -1,0 +1,8 @@
+{
+  "parent": "minecraft:block/nether_portal_ns",
+  "render_type": "minecraft:translucent",
+  "textures": {
+    "particle": "flesh_spread:block/pocket_rift",
+    "portal": "flesh_spread:block/pocket_rift"
+  }
+}

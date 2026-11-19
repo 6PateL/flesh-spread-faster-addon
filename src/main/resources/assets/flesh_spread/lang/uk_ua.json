@@ -6,5 +6,7 @@
   "item.flesh_spread.blood_compass": "Кривавий компас",
   "entity.flesh_spread.flesh_boss": "Утроба",
   "block.flesh_spread.hardened_flesh": "Затверділа плоть",
-  "block.flesh_spread.hardened_flesh_stairs": "Сходи з затверділої плоті"
+  "block.flesh_spread.hardened_flesh_stairs": "Сходи з затверділої плоті",
+  "item.flesh_spread.pocket_maw": "Кишенькова утроба",
+  "block.flesh_spread.pocket_rift": "Розлом у кишеню"
 }

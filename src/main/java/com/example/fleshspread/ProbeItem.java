@@ -102,6 +102,7 @@ public class ProbeItem extends Item {
                 e.accept(FleshDim.HEART_ITEM.get());
                 e.accept(FleshDim.HARDENED_ITEM.get());
                 e.accept(FleshDim.HARDENED_STAIRS_ITEM.get());
+                e.accept(PocketMaw.ITEM.get());
             }
         }
     }

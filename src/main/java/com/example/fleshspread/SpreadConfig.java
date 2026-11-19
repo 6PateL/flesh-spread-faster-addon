@@ -109,7 +109,7 @@ public final class SpreadConfig {
     public int heraldVillageDistance = 56;        // голова, середина й хвіст — не ближче до центру поселення Recruits Villages
     public double heraldMinDays = 1.0;           // Утроба-вісник з'являється раз на 1–5 ігрових днів (випадково)
     public double heraldMaxDays = 5.0;
-    public int heraldScreamSeconds = 30;          // крик раз на стільки секунд (непарні — заражені з розломів, парні — метеорити)
+    public int heraldScreamSeconds = 12;          // крик раз на стільки секунд (непарні — заражені з розломів, парні — метеорити)
     public int riftMobs = 2;                      // скільки заражених виходить із розлому
 
     private static SpreadConfig instance = new SpreadConfig();

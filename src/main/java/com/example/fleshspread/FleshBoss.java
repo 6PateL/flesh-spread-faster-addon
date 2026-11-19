@@ -297,6 +297,14 @@ public class FleshBoss extends Monster implements GeoEntity {
         }
         if (arena == null) arena = blockPosition();
         bar.setProgress(Mth.clamp(getHealth() / getMaxHealth(), 0.0F, 1.0F));
+        if (tickCount % 20 == 0) {
+            // смуга боса — у всіх, хто біля арени, навіть якщо модель ще не прогрузилась
+            for (ServerPlayer p : level.players()) {
+                boolean near = p.distanceToSqr(arena.getX() + 0.5D, p.getY(), arena.getZ() + 0.5D) < (arenaRadius + 60.0D) * (arenaRadius + 60.0D);
+                if (near && !bar.getPlayers().contains(p)) bar.addPlayer(p);
+                else if (!near && bar.getPlayers().contains(p)) bar.removePlayer(p);
+            }
+        }
         if (state() == DEATH) {
             deathTick(level);
             return;
@@ -733,7 +741,7 @@ public class FleshBoss extends Monster implements GeoEntity {
     // ------------------------------------------------------------------ кінець бою
 
     /** Гравці втекли або загинули: бос іде під землю, Серце плоті повертається на п'єдестал. */
-    private void leave(ServerLevel level, String why) {
+    void leave(ServerLevel level, String why) {
         FleshSpread.LOGGER.info("Утроба зникає ({}), здоров'я {}/{}; Серце плоті повернуто", why, (int) getHealth(), (int) getMaxHealth());
         FleshDim.restoreHeart(level);
         bar.removeAllPlayers();
@@ -947,7 +955,6 @@ public class FleshBoss extends Monster implements GeoEntity {
     @Override
     public void stopSeenByPlayer(ServerPlayer p) {
         super.stopSeenByPlayer(p);
-        bar.removePlayer(p);
     }
 
     @Override

@@ -771,6 +771,7 @@ public final class FleshDim {
         long t = level.getGameTime();
         SpreadConfig cfg = SpreadConfig.get();
         lairStep(level);
+        if (t % 200L == 0L) heartCheck(level);
 
         // руїни сіл: вибиті блоки прибираємо звичайним способом, щоб оновилося світло; скрині спорожнюємо
         int budget = 2500;
@@ -1077,6 +1078,18 @@ public final class FleshDim {
         FleshSpread.LOGGER.info("Бій з Утробою почався: арена {} (радіус {}), розбудив {}", center.toShortString(), radius, who);
     }
 
+    /** Серця немає, а бою немає (бос пропав будь-як): Серце повертається на п'єдестал. */
+    private static void heartCheck(ServerLevel level) {
+        FleshData data = FleshData.get(level);
+        if (!data.lairDone || data.heart == null || data.center == null || FleshData.defeated(level.getServer())) return;
+        if (!level.hasChunkAt(data.heart) || level.getBlockState(data.heart).is(HEART.get())) return;
+        for (Entity e : level.getAllEntities()) {
+            if (e instanceof FleshBoss b && !b.herald && b.isAlive()) return;
+        }
+        level.setBlock(data.heart, HEART.get().defaultBlockState(), 3);
+        FleshSpread.LOGGER.info("Вимір плоті: бою немає, Серце плоті повернуто на п'єдестал {}", data.heart.toShortString());
+    }
+
     /** Гравці втекли або загинули: Серце плоті знову на п'єдесталі. */
     static void restoreHeart(ServerLevel level) {
         FleshData data = FleshData.get(level);
@@ -1108,10 +1121,41 @@ public final class FleshDim {
 
     // ================================================================== смерть у вимірі плоті
 
+    /**
+     * Гравець загинув у вимірі плоті або вийшов із нього: якщо біля арени більше нікого немає, Утроба одразу йде,
+     * а Серце повертається — бій можна почати знову (інакше бос «застрягав» у вивантаженому чанку).
+     */
+    private static void abandonCheck(ServerLevel flesh, ServerPlayer gone) {
+        for (Entity e : flesh.getAllEntities()) {
+            if (!(e instanceof FleshBoss boss) || boss.herald || !boss.isAlive() || boss.arena == null) continue;
+            boolean anyone = false;
+            for (ServerPlayer p : flesh.players()) {
+                if (p != gone && p.isAlive() && !p.isSpectator() && p.distanceToSqr(boss.arena.getX(), p.getY(), boss.arena.getZ())
+                        < (boss.arenaRadius + 60.0D) * (boss.arenaRadius + 60.0D)) anyone = true;
+            }
+            if (!anyone) boss.leave(flesh, gone.isAlive() ? "гравець покинув вимір" : "гравець загинув");
+        }
+    }
+
+    @SubscribeEvent
+    public static void onLeaveFlesh(net.minecraftforge.event.entity.player.PlayerEvent.PlayerChangedDimensionEvent event) {
+        if (event.getEntity() instanceof ServerPlayer p && event.getFrom() == KEY) {
+            ServerLevel flesh = p.server.getLevel(KEY);
+            if (flesh != null) abandonCheck(flesh, p);
+        }
+    }
+
+    @SubscribeEvent
+    public static void onLogout(net.minecraftforge.event.entity.player.PlayerEvent.PlayerLoggedOutEvent event) {
+        if (event.getEntity() instanceof ServerPlayer p && isFlesh(p.level())) abandonCheck((ServerLevel) p.level(), p);
+    }
+
     /** Убитий Утробою втрачає не одне життя, а п'ять (мод Limited Lives). */
     @SubscribeEvent(priority = net.minecraftforge.eventbus.api.EventPriority.LOWEST)
     public static void onPlayerDeath(net.minecraftforge.event.entity.living.LivingDeathEvent event) {
         if (!(event.getEntity() instanceof ServerPlayer p) || event.isCanceled()) return;
+        COOLDOWN.remove(p.getUUID()); // після смерті портал знову пускає одразу
+        if (isFlesh(p.level())) abandonCheck((ServerLevel) p.level(), p);
         Entity killer = event.getSource().getEntity();
         if (!(killer instanceof FleshBoss)) return;
         try {

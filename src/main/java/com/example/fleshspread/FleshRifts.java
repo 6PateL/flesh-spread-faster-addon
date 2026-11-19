@@ -140,6 +140,14 @@ public final class FleshRifts {
         return open(level, around, min, max, why, 0L);
     }
 
+    /** Чи є розлом (будь-якої фази) ближче ніж radius до точки. */
+    static boolean riftNear(ServerLevel level, BlockPos at, double radius) {
+        for (Rift r : Data.get(level).rifts) {
+            if (r.base.offset(1, 0, 0).distSqr(new BlockPos(at.getX(), r.base.getY(), at.getZ())) <= radius * radius) return true;
+        }
+        return false;
+    }
+
     /** Кількість відкритих (або ще не затягнутих) розломів поруч. */
     static int openNear(ServerLevel level, BlockPos around, double radius) {
         int n = 0;
@@ -349,8 +357,10 @@ public final class FleshRifts {
                     if (!p.isSpectator()) ok.add(p);
                 }
                 BlockPos at = ok.isEmpty() ? null : herald(level, ok.get(level.random.nextInt(ok.size())).blockPosition(), "подія");
-                data.next = now + (at != null ? interval(level, cfg) : 600L);
+                long next = at != null ? interval(level, cfg) : 600L;
+                data.next = now + next;
                 data.setDirty();
+                FleshSpread.LOGGER.info("Вісник: наступна поява через {} хв гри (~{} дн.)", next / 1200L, String.format("%.1f", next / 24000.0D));
             }
         }
 
@@ -388,10 +398,11 @@ public final class FleshRifts {
         }
     }
 
+    /** Наступна поява вісника: випадковий момент через 1–5 ігрових днів (у конфігу). */
     private static long interval(ServerLevel level, SpreadConfig cfg) {
-        int min = Math.max(20, Math.min(cfg.riftIntervalMinSeconds, cfg.riftIntervalMaxSeconds));
-        int max = Math.max(min, Math.max(cfg.riftIntervalMinSeconds, cfg.riftIntervalMaxSeconds));
-        return (min + level.random.nextInt(max - min + 1)) * 20L;
+        double min = Math.max(0.05D, Math.min(cfg.heraldMinDays, cfg.heraldMaxDays));
+        double max = Math.max(min, Math.max(cfg.heraldMinDays, cfg.heraldMaxDays));
+        return (long) ((min + level.random.nextDouble() * (max - min)) * 24000.0D);
     }
 
     private static void burst(ServerLevel level, BlockPos p, int count) {

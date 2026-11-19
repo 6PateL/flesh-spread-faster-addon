@@ -100,6 +100,8 @@ public class ProbeItem extends Item {
                 e.accept(FleshDim.FRAME_ITEM.get());
                 e.accept(FleshDim.BLOOD_COMPASS.get());
                 e.accept(FleshDim.HEART_ITEM.get());
+                e.accept(FleshDim.HARDENED_ITEM.get());
+                e.accept(FleshDim.HARDENED_STAIRS_ITEM.get());
             }
         }
     }

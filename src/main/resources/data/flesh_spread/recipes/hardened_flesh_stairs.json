@@ -1,0 +1,18 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "building",
+  "pattern": [
+    "H  ",
+    "HH ",
+    "HHH"
+  ],
+  "key": {
+    "H": {
+      "item": "flesh_spread:hardened_flesh"
+    }
+  },
+  "result": {
+    "item": "flesh_spread:hardened_flesh_stairs",
+    "count": 4
+  }
+}

@@ -86,6 +86,16 @@ public final class FleshDim {
     public static final RegistryObject<Block> HEART = BLOCKS.register("flesh_heart", () -> new Block(BlockBehaviour.Properties.of()
             .mapColor(MapColor.COLOR_RED).strength(5.0F, 1200.0F).sound(SoundType.SLIME_BLOCK).lightLevel(s -> 13).noLootTable()));
 
+    /** Затверділа плоть: не горить і не ламається вибухами; з неї лігво та вхід у нього. */
+    public static final RegistryObject<Block> HARDENED = BLOCKS.register("hardened_flesh", () -> new Block(BlockBehaviour.Properties.of()
+            .mapColor(MapColor.COLOR_RED).strength(6.0F, 1200.0F).sound(SoundType.BONE_BLOCK).requiresCorrectToolForDrops()));
+    public static final RegistryObject<Block> HARDENED_STAIRS = BLOCKS.register("hardened_flesh_stairs",
+            () -> new StairBlock(() -> HARDENED.get().defaultBlockState(), BlockBehaviour.Properties.copy(HARDENED.get())));
+    public static final RegistryObject<Item> HARDENED_ITEM = ProbeItem.ITEMS.register("hardened_flesh",
+            () -> new BlockItem(HARDENED.get(), new Item.Properties()));
+    public static final RegistryObject<Item> HARDENED_STAIRS_ITEM = ProbeItem.ITEMS.register("hardened_flesh_stairs",
+            () -> new BlockItem(HARDENED_STAIRS.get(), new Item.Properties()));
+
     public static final DeferredRegister<EntityType<?>> ENTITIES = DeferredRegister.create(ForgeRegistries.ENTITY_TYPES, FleshSpread.MOD_ID);
     public static final RegistryObject<EntityType<FleshBoss>> BOSS = ENTITIES.register("flesh_boss",
             () -> EntityType.Builder.<FleshBoss>of(FleshBoss::new, net.minecraft.world.entity.MobCategory.MONSTER).sized(8.0F, 10.0F)
@@ -213,6 +223,7 @@ public final class FleshDim {
         if (!(entity instanceof ServerPlayer player) || player.isPassenger() || player.isVehicle()) return;
         long now = level.getServer().getTickCount();
         Long until = COOLDOWN.get(player.getUUID());
+        if (until != null && until - now > 400L) until = null; // залишок від іншого світу (лічильник тіків почався знову)
         if (until != null && now < until) {
             COOLDOWN.put(player.getUUID(), Math.max(until, now + 40L)); // поки стоїш у порталі, він не спрацює вдруге
             return;
@@ -344,10 +355,21 @@ public final class FleshDim {
         return made;
     }
 
+    /** Нова гра чи інший світ: тимчасові списки попереднього світу більше не діють (через них портал «не пускав»). */
+    @SubscribeEvent
+    public static void onServerStart(net.minecraftforge.event.server.ServerStartingEvent event) {
+        COOLDOWN.clear();
+        RUINS.clear();
+        NESTS.clear();
+        MOBS.clear();
+        lastForeignLog = 0L;
+    }
+
     // ================================================================== подорож
 
     private static void travel(ServerLevel from, ServerPlayer player) {
         MinecraftServer server = from.getServer();
+        FsNet.sendFx(player, 6); // щупальця плоті затягують екран
         CompoundTag root = player.getPersistentData();
         CompoundTag keep = root.getCompound(Player.PERSISTED_NBT_TAG);
         if (isFlesh(from)) {
@@ -837,7 +859,7 @@ public final class FleshDim {
 
     // ================================================================== лігво: печера-арена під землею
 
-    static final int LAIR_RADIUS = 60, LAIR_HEIGHT = 36, LAIR_OFFSET = 42, LAIR_VERSION = 2, SHELL = 4;
+    static final int LAIR_RADIUS = 60, LAIR_HEIGHT = 36, LAIR_OFFSET = 42, LAIR_VERSION = 3, SHELL = 4, TUNNEL_W = 5, TUNNEL_H = 8;
 
     /** Будує лігво поступово (по шару за тик), щоб не підвішувати сервер. Викликається щотику у вимірі плоті. */
     /** Радіус порожнини на висоті dy над підлогою (купол). */
@@ -866,16 +888,16 @@ public final class FleshDim {
             data.setDirty();
         }
         if (data.boss == null || data.lairDone || data.lairStage < 0) return;
-        Block rot = fth("rotting_flesh_block");
         Block log = fth("flesh_log");
-        BlockState floor = rot != null ? rot.defaultBlockState() : FRAME.get().defaultBlockState();
+        BlockState floor = HARDENED.get().defaultBlockState(); // не горить: оболонка купола, підлога, тунель
         BlockState pillar = log != null ? log.defaultBlockState() : FRAME.get().defaultBlockState();
         BlockState air = Blocks.AIR.defaultBlockState();
         int ex = data.boss.getX(), ez = data.boss.getZ();       // вхід (колона з драбиною)
         if (data.center == null) {
             int surface = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, ex, ez);
             int fy = Math.max(level.getMinBuildHeight() + 12, Math.min(surface - LAIR_HEIGHT - 22, 8));
-            data.center = new BlockPos(ex - LAIR_OFFSET, fy, ez);
+            // похилий тунель зі сходами (1:1) від стіни арени до поверхні: вхід там, куди веде компас
+            data.center = new BlockPos(ex - (LAIR_RADIUS - 4) - Math.max(0, surface - fy), fy, ez);
             data.boss = new BlockPos(ex, surface, ez);
         }
         BlockPos c = data.center;
@@ -943,38 +965,7 @@ public final class FleshDim {
         }
         data.heart = c.above(steps.length);
         level.setBlock(data.heart, HEART.get().defaultBlockState(), 3);
-        // вхід: шахта з поверхні, у ній колона з драбинами з чотирьох боків
-        BlockPos e = new BlockPos(c.getX() + LAIR_OFFSET, c.getY(), c.getZ());
-        int top = data.boss.getY() + 1;
-        for (int y = c.getY(); y <= top; y++) {
-            for (int dx = -3; dx <= 3; dx++) {
-                for (int dz = -3; dz <= 3; dz++) {
-                    if (dx * dx + dz * dz > 10) continue;
-                    BlockPos q = new BlockPos(e.getX() + dx, y, e.getZ() + dz);
-                    level.setBlock(q, dx == 0 && dz == 0 ? pillar : air, 2);
-                }
-            }
-            // стінки шахти з плоті там, де вона йде крізь землю (щоб не текла вода)
-            for (int dx = -4; dx <= 4; dx++) {
-                for (int dz = -4; dz <= 4; dz++) {
-                    int d2 = dx * dx + dz * dz;
-                    if (d2 <= 10 || d2 > 20) continue;
-                    BlockPos q = new BlockPos(e.getX() + dx, y, e.getZ() + dz);
-                    if (!inCavity(c, q) && y < top - 1) level.setBlock(q, floor, 2);
-                }
-            }
-            for (Direction d : new Direction[]{Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST}) {
-                level.setBlock(new BlockPos(e.getX(), y, e.getZ()).relative(d), Blocks.LADDER.defaultBlockState()
-                        .setValue(net.minecraft.world.level.block.LadderBlock.FACING, d), 2);
-            }
-        }
-        for (int i = 0; i < 8; i++) { // позначка входу на поверхні
-            double ang = i * Math.PI / 4.0D;
-            int px = (int) Math.round(Math.cos(ang) * 7.0D), pz = (int) Math.round(Math.sin(ang) * 7.0D);
-            int gy = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, e.getX() + px, e.getZ() + pz);
-            for (int dy = 0; dy < 5 + (i % 2) * 2; dy++) level.setBlock(new BlockPos(e.getX() + px, gy + dy, e.getZ() + pz), pillar, 2);
-            level.setBlock(new BlockPos(e.getX() + px, gy + 5 + (i % 2) * 2, e.getZ() + pz), FRAME.get().defaultBlockState(), 2);
-        }
+        buildTunnel(level, c, floor);
         EntityType<?> big = Nests.big();
         if (big != null) {
             for (int i = 0; i < 4; i++) {
@@ -994,6 +985,63 @@ public final class FleshDim {
     @SubscribeEvent
     public static void onChangeTarget(net.minecraftforge.event.entity.living.LivingChangeTargetEvent event) {
         if (event.getNewTarget() instanceof FleshBoss boss && !isFlesh(boss.level()) && boss.herald) event.setCanceled(true);
+    }
+
+    /**
+     * Вхід у лігво — широкий похилий тунель («ополонка» в печеру) зі сходами з затверділої плоті, від стіни арени вгору
+     * до поверхні. 11 блоків завширшки й 8 заввишки, тож військо проходить строєм. Стіни й стеля — затверділа плоть
+     * (не горить), уздовж — світло.
+     */
+    private static void buildTunnel(ServerLevel level, BlockPos c, BlockState shell) {
+        BlockState air = Blocks.AIR.defaultBlockState();
+        BlockState stairs = HARDENED_STAIRS.get().defaultBlockState().setValue(StairBlock.FACING, Direction.EAST);
+        int x0 = c.getX() + LAIR_RADIUS - 6;
+        int z = c.getZ();
+        // висота поверхні над кожним стовпцем — до того, як рити
+        int len = 0;
+        while (len < 200) {
+            int x = x0 + len;
+            int ground = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z);
+            if (c.getY() + len > ground + 1) break;
+            len++;
+        }
+        for (int t = 0; t <= len; t++) {
+            int x = x0 + t;
+            int fy = c.getY() + t - 1; // сходинка
+            for (int dz = -TUNNEL_W - 2; dz <= TUNNEL_W + 2; dz++) {
+                int zz = z + dz;
+                int ground = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, zz);
+                boolean wall = Math.abs(dz) > TUNNEL_W;
+                for (int dy = -2; dy <= TUNNEL_H + 2; dy++) {
+                    BlockPos q = new BlockPos(x, fy + dy, zz);
+                    if (inCavity(c, q)) continue;
+                    boolean inside = !wall && dy >= 0 && dy <= TUNNEL_H;
+                    if (inside) {
+                        level.setBlock(q, dy == 0 ? stairs : air, 2);
+                    } else if (q.getY() < ground) {
+                        // оболонка лише під землею: нагорі тунель стає відкритою ополонкою
+                        boolean light = wall && dy == 4 && t % 6 == 3;
+                        level.setBlock(q, light ? Blocks.SHROOMLIGHT.defaultBlockState() : shell, 2);
+                    }
+                }
+            }
+        }
+        // обеліски біля входу
+        int ex = x0 + len;
+        for (int side = -1; side <= 1; side += 2) {
+            for (int k = 0; k < 2; k++) {
+                int px = ex - k * 8, pz = z + side * (TUNNEL_W + 4);
+                int gy = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, px, pz);
+                for (int dy = 0; dy < 9; dy++) {
+                    for (int ox = 0; ox <= 1; ox++) {
+                        for (int oz = 0; oz <= 1; oz++) {
+                            level.setBlock(new BlockPos(px + ox, gy + dy, pz + oz), dy == 8 ? Blocks.SHROOMLIGHT.defaultBlockState() : shell, 2);
+                        }
+                    }
+                }
+            }
+        }
+        FleshSpread.LOGGER.info("Вимір плоті: вхідний тунель у лігво — {} сходинок, вихід на поверхню біля {}, {}", len, ex, z);
     }
 
     /** Серце плоті розбито: вий, темрява, і з-під землі виринає Утроба. */

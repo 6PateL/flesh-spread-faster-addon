@@ -78,6 +78,12 @@ public final class RaidOverlay {
         started = System.currentTimeMillis();
         mode = fxMode;
         strong = fxMode != 0;
+        if (fxMode == 6) { // вхід у портал: щупальця плоті повзуть від країв до центру
+            FADE_IN = 1100L;
+            HOLD = 600L;
+            FADE_OUT = 1300L;
+            return;
+        }
         FADE_IN = fxMode == 4 ? 300L : 2500L;       // 4 = крик Утроби: короткий червоний спалах
         HOLD = fxMode == 4 ? 1500L : 5000L;
         FADE_OUT = fxMode == 4 ? 2200L : 6000L;
@@ -106,6 +112,10 @@ public final class RaidOverlay {
         GuiGraphics g = event.getGuiGraphics();
         int w = event.getWindow().getGuiScaledWidth();
         int h = event.getWindow().getGuiScaledHeight();
+        if (mode == 6) {
+            tentacles(g, w, h, t, a);
+            return;
+        }
 
         // кривава пелена на весь екран
         g.fill(0, 0, w, h, argb((int) (70 * k), 0x7A, 0x08, 0x08));
@@ -142,6 +152,44 @@ public final class RaidOverlay {
             SoundEvent beat = ForgeRegistries.SOUND_EVENTS.getValue(new ResourceLocation("minecraft", "entity.warden.heartbeat"));
             if (mc.player != null && beat != null) {
                 mc.player.playSound(beat, 1.2F * a + 0.2F, strong ? 0.8F : 1.0F);
+            }
+        }
+    }
+
+    /**
+     * Щупальця плоті: дванадцять м'ясистих відростків виростають від країв екрана, звиваючись, і майже змикаються в
+     * центрі; під ними темніє, потім усе розсмоктується.
+     */
+    private static void tentacles(GuiGraphics g, int w, int h, long t, float a) {
+        float grow = Math.min(1.0F, t / (float) FADE_IN);
+        grow = 1.0F - (1.0F - grow) * (1.0F - grow);
+        float cx = w / 2.0F, cy = h / 2.0F;
+        g.fill(0, 0, w, h, argb((int) (150 * a * grow), 0x1A, 0x00, 0x02));
+        int n = 12;
+        for (int i = 0; i < n; i++) {
+            double ang = i * Math.PI * 2.0D / n + 0.13D * i;
+            // старт на краю екрана
+            double ex = Math.cos(ang), ey = Math.sin(ang);
+            double scale = Math.min(Math.abs(cx / (ex == 0 ? 1e-6 : ex)), Math.abs(cy / (ey == 0 ? 1e-6 : ey)));
+            float sx = (float) (cx + ex * scale), sy = (float) (cy + ey * scale);
+            float len = (float) (scale * (0.88D - (i % 3) * 0.07D)) * grow;
+            float base = Math.max(6.0F, Math.min(w, h) * 0.07F) * (1.0F - (i % 2) * 0.25F);
+            int steps = (int) Math.max(2, len / 1.5F);
+            for (int k = 0; k <= steps; k++) {
+                float f = k / (float) steps;
+                float d = f * len;
+                // звивання: синус уздовж щупальця, що «пливе» в часі
+                double wob = Math.sin(f * 7.0D + t / 180.0D + i) * (10.0D + 14.0D * f) * grow;
+                float px = (float) (sx - ex * d - ey * wob);
+                float py = (float) (sy - ey * d + ex * wob);
+                float r = base * (1.0F - f * 0.85F);
+                int shade = (int) (110 + 60 * Math.sin(f * 20.0D + i));
+                int alpha = (int) (235 * a);
+                g.fill((int) (px - r), (int) (py - r), (int) (px + r), (int) (py + r), argb(alpha, Math.min(255, shade + 40), 0x10, 0x16));
+                if (k % 6 == 0) { // темні жили й присоски
+                    float rr = r * 0.45F;
+                    g.fill((int) (px - rr), (int) (py - rr), (int) (px + rr), (int) (py + rr), argb(alpha, 0x4A, 0x02, 0x08));
+                }
             }
         }
     }

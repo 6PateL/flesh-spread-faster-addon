@@ -101,13 +101,16 @@ public final class SpreadConfig {
     public boolean riftsEnabled = true;
     public int riftIntervalMinSeconds = 240;      // часто...
     public int riftIntervalMaxSeconds = 480;
-    public int riftLifetimeSeconds = 75;          // ...але ненадовго
+    public int riftLifetimeSeconds = 100;         // ...але ненадовго
     public int riftDistanceMin = 16;              // відстань від гравця
     public int riftDistanceMax = 40;
     public int heraldDistanceMin = 48;            // Утроба-вісник виринає на такій відстані від гравця (шукає місце сам, від ближнього)
     public int heraldDistanceMax = 88;
     public int heraldVillageDistance = 56;        // голова, середина й хвіст — не ближче до центру поселення Recruits Villages
-    public int riftMobs = 3;                      // скільки заражених виходить із розлому
+    public double heraldMinDays = 1.0;           // Утроба-вісник з'являється раз на 1–5 ігрових днів (випадково)
+    public double heraldMaxDays = 5.0;
+    public int heraldScreamSeconds = 30;          // крик раз на стільки секунд (непарні — заражені з розломів, парні — метеорити)
+    public int riftMobs = 2;                      // скільки заражених виходить із розлому
 
     private static SpreadConfig instance = new SpreadConfig();
     public static SpreadConfig get() { return instance; }

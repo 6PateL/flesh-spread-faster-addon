@@ -1,0 +1,24 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "building",
+  "pattern": [
+    "FBF",
+    "BLB",
+    "FBF"
+  ],
+  "key": {
+    "F": {
+      "item": "flesh_that_hates:flesh_block"
+    },
+    "B": {
+      "item": "minecraft:bone_block"
+    },
+    "L": {
+      "item": "flesh_spread:living_flesh"
+    }
+  },
+  "result": {
+    "item": "flesh_spread:hardened_flesh",
+    "count": 8
+  }
+}

@@ -4,5 +4,7 @@
   "block.flesh_spread.flesh_portal": "Flesh Portal",
   "block.flesh_spread.flesh_heart": "Heart of Flesh",
   "item.flesh_spread.blood_compass": "Blood Compass",
-  "entity.flesh_spread.flesh_boss": "The Maw"
+  "entity.flesh_spread.flesh_boss": "The Maw",
+  "block.flesh_spread.hardened_flesh": "Hardened Flesh",
+  "block.flesh_spread.hardened_flesh_stairs": "Hardened Flesh Stairs"
 }

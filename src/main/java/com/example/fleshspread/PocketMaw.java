@@ -360,14 +360,8 @@ public final class PocketMaw {
     /** Новий чанк кишенькового виміру: усе поза островом — порожнеча; під краями острова звисає плоть. */
     @SubscribeEvent
     public static void onChunkLoad(net.minecraftforge.event.level.ChunkEvent.Load event) {
-        if (!(event.getLevel() instanceof ServerLevel level) || !isPocket(level)
+        if (!event.isNewChunk() || !(event.getLevel() instanceof ServerLevel level) || !isPocket(level)
                 || !(event.getChunk() instanceof net.minecraft.world.level.chunk.LevelChunk chunk)) return;
-        if (!event.isNewChunk()) {
-            // плоский генератор із шаром повітря внизу лишає висоти стовпців нульовими: карта (N) бачила там лише
-            // порожнечу й малювала чорне. Перераховуємо при кожному завантаженні (острів маленький, це дешево)
-            net.minecraft.world.level.levelgen.Heightmap.primeHeightmaps(chunk, java.util.EnumSet.allOf(Heightmap.Types.class));
-            return;
-        }
         int x0 = chunk.getPos().getMinBlockX(), z0 = chunk.getPos().getMinBlockZ();
         BlockState air = Blocks.AIR.defaultBlockState();
         net.minecraft.world.level.chunk.LevelChunkSection[] sections = chunk.getSections();
@@ -387,9 +381,11 @@ public final class PocketMaw {
                 }
             }
         }
-        // висоти стовпців — перерахувати завжди (див. вище), інакше карта й поява мобів бачать порожнечу
-        net.minecraft.world.level.levelgen.Heightmap.primeHeightmaps(chunk, java.util.EnumSet.allOf(Heightmap.Types.class));
-        if (changed) chunk.setUnsaved(true);
+        if (changed) {
+            // висоти стовпців змінились — перерахувати, щоб світло й поява мобів знали про порожнечу
+            net.minecraft.world.level.levelgen.Heightmap.primeHeightmaps(chunk, java.util.EnumSet.allOf(Heightmap.Types.class));
+            chunk.setUnsaved(true);
+        }
     }
 
     // ================================================================== правила кишенькового виміру

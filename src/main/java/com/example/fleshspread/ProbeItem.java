@@ -62,10 +62,10 @@ public class ProbeItem extends Item {
             int n = InfectedRaids.launchType(sl, cfg, RaidTargets.VILLAGE, sp, true);
             msg = n > 0 ? "Посилений рейд: нападів " + n : "Посилений рейд: цілей не знайдено";
         } else if (m == 9) {
-            net.minecraft.core.BlockPos at = FleshRifts.herald(sl, sp.blockPosition(), "зонд, " + sp.getName().getString());
-            msg = at != null ? "Утроба виринає на " + at.toShortString()
+            net.minecraft.core.BlockPos at = FleshRifts.herald(sl, sp.blockPosition(), "зонд, " + sp.getName().getString(), true);
+            msg = at != null ? "Утроба виринає на " + at.toShortString() + " (" + (int) Math.sqrt(at.distSqr(sp.blockPosition())) + " блоків)"
                     : FleshDim.isFlesh(sl) ? "У вимірі плоті вісника не буває" : FleshData.defeated(sl.getServer())
-                    ? "Інфекцію вже переможено" : "Вісник: немає місця або він уже поруч";
+                    ? "Інфекцію вже переможено" : "Довкола немає жодної завантаженої поверхні";
         } else if (m == 10) {
             if (FleshBoss.near(sl, sp.blockPosition(), 150.0D).isEmpty()) {
                 FleshDim.startFight(sl, sp.blockPosition(), 60, "зонд, " + sp.getName().getString());

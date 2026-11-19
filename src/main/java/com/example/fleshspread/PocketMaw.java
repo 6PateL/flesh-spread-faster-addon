@@ -65,6 +65,7 @@ import java.util.List;
 public final class PocketMaw {
     public static final ResourceKey<Level> KEY = ResourceKey.create(Registries.DIMENSION, new ResourceLocation(FleshSpread.MOD_ID, "pocket"));
     static final int HALF = 100; // 200x200
+    static final int ISLAND = 96; // сам острів трохи менший за межу: довкола видно порожнечу
     private static final int W = 4, H = 5;
 
     public static final RegistryObject<Block> RIFT = FleshDim.BLOCKS.register("pocket_rift", RiftBlock::new);
@@ -347,6 +348,46 @@ public final class PocketMaw {
         FleshSpread.LOGGER.info("Кишенькова утроба: {} увійшов у кишеньковий вимір", p.getName().getString());
     }
 
+    // ================================================================== острів
+
+    /** Нерівний край острова: від центру до краю ~96 блоків, з вигризеними бухтами. */
+    private static boolean onIsland(int x, int z) {
+        double r = Math.max(Math.abs(x), Math.abs(z)) * 0.65D + Math.hypot(x, z) * 0.35D; // між квадратом і колом
+        double edge = ISLAND - 3.0D + 3.0D * Math.sin(Math.atan2(z, x) * 7.0D) + 2.0D * Math.sin(Math.atan2(z, x) * 13.0D + 1.3D);
+        return r <= edge;
+    }
+
+    /** Новий чанк кишенькового виміру: усе поза островом — порожнеча; під краями острова звисає плоть. */
+    @SubscribeEvent
+    public static void onChunkLoad(net.minecraftforge.event.level.ChunkEvent.Load event) {
+        if (!event.isNewChunk() || !(event.getLevel() instanceof ServerLevel level) || !isPocket(level)
+                || !(event.getChunk() instanceof net.minecraft.world.level.chunk.LevelChunk chunk)) return;
+        int x0 = chunk.getPos().getMinBlockX(), z0 = chunk.getPos().getMinBlockZ();
+        BlockState air = Blocks.AIR.defaultBlockState();
+        net.minecraft.world.level.chunk.LevelChunkSection[] sections = chunk.getSections();
+        boolean changed = false;
+        for (int dx = 0; dx < 16; dx++) {
+            for (int dz = 0; dz < 16; dz++) {
+                int x = x0 + dx, z = z0 + dz;
+                if (onIsland(x, z)) continue;
+                for (net.minecraft.world.level.chunk.LevelChunkSection sec : sections) {
+                    if (sec == null || sec.hasOnlyAir()) continue;
+                    for (int y = 0; y < 16; y++) {
+                        if (!sec.getBlockState(dx, y, dz).isAir()) {
+                            sec.setBlockState(dx, y, dz, air, false);
+                            changed = true;
+                        }
+                    }
+                }
+            }
+        }
+        if (changed) {
+            // висоти стовпців змінились — перерахувати, щоб світло й поява мобів знали про порожнечу
+            net.minecraft.world.level.levelgen.Heightmap.primeHeightmaps(chunk, java.util.EnumSet.allOf(Heightmap.Types.class));
+            chunk.setUnsaved(true);
+        }
+    }
+
     // ================================================================== правила кишенькового виміру
 
     @SubscribeEvent
@@ -380,12 +421,17 @@ public final class PocketMaw {
         // межа 200x200 (на випадок, якщо світову межу змінили командою)
         if (t % 20L == 0L) {
             for (ServerPlayer p : level.players()) {
-                if (Math.abs(p.getX()) > HALF - 1 || Math.abs(p.getZ()) > HALF - 1) {
-                    double x = Math.max(-(HALF - 2), Math.min(HALF - 2, p.getX())), z = Math.max(-(HALF - 2), Math.min(HALF - 2, p.getZ()));
-                    p.teleportTo(x, level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, (int) Math.floor(x), (int) Math.floor(z)), z);
-                }
-                if (p.getY() < level.getMinBuildHeight()) {
-                    p.teleportTo(0.5D, level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, 0, 0), 0.5D);
+                // зірвався з краю острова — порожнеча повертає його на острів
+                if (p.getY() < level.getMinBuildHeight() + 1) {
+                    double k = 0.85D;
+                    double x = p.getX() * k, z = p.getZ() * k;
+                    while (!onIsland((int) Math.floor(x), (int) Math.floor(z)) && k > 0.0D) {
+                        k -= 0.1D;
+                        x = p.getX() * Math.max(0.0D, k);
+                        z = p.getZ() * Math.max(0.0D, k);
+                    }
+                    p.teleportTo(x, level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, (int) Math.floor(x), (int) Math.floor(z)) + 1, z);
+                    p.fallDistance = 0.0F;
                 }
             }
         }
@@ -398,7 +444,7 @@ public final class PocketMaw {
             if (animals < 24) {
                 ResourceLocation id = new ResourceLocation(PASSIVE[level.random.nextInt(PASSIVE.length)]);
                 EntityType<?> type = ForgeRegistries.ENTITY_TYPES.getValue(id);
-                int x = level.random.nextInt(HALF * 2 - 20) - HALF + 10, z = level.random.nextInt(HALF * 2 - 20) - HALF + 10;
+                int x = level.random.nextInt(ISLAND * 2 - 30) - ISLAND + 15, z = level.random.nextInt(ISLAND * 2 - 30) - ISLAND + 15;
                 BlockPos at = new BlockPos(x, 0, z);
                 if (type != null && level.hasChunkAt(at)) {
                     at = new BlockPos(x, level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z), z);

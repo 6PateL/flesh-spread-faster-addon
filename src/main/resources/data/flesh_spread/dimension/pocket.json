@@ -9,8 +9,12 @@
       "structure_overrides": [],
       "layers": [
         {
-          "block": "minecraft:bedrock",
-          "height": 1
+          "block": "minecraft:air",
+          "height": 60
+        },
+        {
+          "block": "flesh_that_hates:rotting_flesh_block",
+          "height": 2
         },
         {
           "block": "flesh_that_hates:rotting_flesh_dirt",

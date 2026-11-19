@@ -46,6 +46,8 @@ public final class FleshRifts {
         long expire;
         int phase = GROW;
         int rows;            // скільки рядів рамки зараз стоїть
+        int infected;        // скільки блоків заразив (для логу)
+        boolean quiet;       // розлом вісника: заражені виходять лише на його крик
         final List<BlockState> saved = new ArrayList<>(); // що було на місці рамки (W*H, ряд за рядом)
     }
 
@@ -68,6 +70,7 @@ public final class FleshRifts {
                 r.expire = c.getLong("expire");
                 r.phase = c.getInt("phase");
                 r.rows = c.getInt("rows");
+                r.quiet = c.getBoolean("quiet");
                 ListTag st = c.getList("saved", Tag.TAG_COMPOUND);
                 for (int k = 0; k < st.size(); k++) {
                     r.saved.add(NbtUtils.readBlockState(BuiltInRegistries.BLOCK.asLookup(), st.getCompound(k)));
@@ -87,6 +90,7 @@ public final class FleshRifts {
                 c.putLong("expire", r.expire);
                 c.putInt("phase", r.phase);
                 c.putInt("rows", r.rows);
+                c.putBoolean("quiet", r.quiet);
                 ListTag st = new ListTag();
                 for (BlockState s : r.saved) st.add(NbtUtils.writeBlockState(s));
                 c.put("saved", st);
@@ -147,6 +151,10 @@ public final class FleshRifts {
 
     /** {@code until} > 0: розлом живе до цього моменту (разом із вісником), інакше — звичайний час із конфігу. */
     public static BlockPos open(ServerLevel level, BlockPos around, int min, int max, String why, long until) {
+        return open(level, around, min, max, why, until, false);
+    }
+
+    public static BlockPos open(ServerLevel level, BlockPos around, int min, int max, String why, long until, boolean quiet) {
         if (FleshDim.isFlesh(level)) return null;
         SpreadConfig cfg = SpreadConfig.get();
         Data data = Data.get(level);
@@ -160,7 +168,7 @@ public final class FleshRifts {
             BlockPos base = new BlockPos(x, s.getY(), z);
             boolean clash = false;
             for (Rift r : data.rifts) {
-                if (r.base.distSqr(base) < 24.0D * 24.0D) clash = true;
+                if (r.base.distSqr(base) < 12.0D * 12.0D) clash = true;
             }
             // над землею має бути вільно, і жодних блоків із вмістом
             for (int i = 0; i < W && !clash; i++) {
@@ -176,6 +184,7 @@ public final class FleshRifts {
             if (clash) continue;
             Rift r = new Rift();
             r.base = base;
+            r.quiet = quiet;
             r.expire = until > 0L ? until : level.getGameTime() + 40L + Math.max(10, cfg.riftLifetimeSeconds) * 20L;
             for (int j = 0; j < H; j++) {
                 for (int i = 0; i < W; i++) r.saved.add(level.getBlockState(base.offset(i, j, 0)));
@@ -364,12 +373,15 @@ public final class FleshRifts {
                 } else {
                     if (level.random.nextInt(4) == 0) burst(level, r.base.offset(1 + level.random.nextInt(2), 1 + level.random.nextInt(3), 0), 4);
                     // поки розлом відкритий, плоть розповзається довкола нього
-                    if (now % 30L == 0L) Nests.creep(level, r.base.offset(1, 0, 0), 14, 6);
+                    if (now % 18L == 0L) {
+                        int n = Nests.creep(level, r.base.offset(1, 0, 0), 16, 10);
+                        r.infected += n;
+                    }
                 }
             } else {
                 closeRow(level, r);
                 if (r.rows <= 0) {
-                    FleshSpread.LOGGER.info("Розлом плоті на {} затягнувся", r.base.toShortString());
+                    FleshSpread.LOGGER.info("Розлом плоті на {} затягнувся, встиг заразити блоків: {}", r.base.toShortString(), r.infected);
                     it.remove();
                 }
             }
@@ -411,7 +423,7 @@ public final class FleshRifts {
         burst(level, c, 60);
         FleshDim.sound(level, c, "flesh_that_hates:entity.call", 7.0F, 0.6F);
         FleshDim.sound(level, c, "flesh_that_hates:entity.herpad.summon", 4.0F, 0.7F);
-        int mobs = FleshDim.summon(level, c.below(), cfg.riftMobs, 1, 3, null);
+        int mobs = r.quiet ? 0 : FleshDim.summon(level, c.below(), cfg.riftMobs, 1, 3, null);
         FleshSpread.LOGGER.info("Розлом плоті на {} відкрито, вийшло мобів: {}", r.base.toShortString(), mobs);
     }
 

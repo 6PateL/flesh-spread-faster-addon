@@ -50,8 +50,10 @@ import java.util.List;
 public class FleshBoss extends Monster implements GeoEntity {
     /** Масштаб моделі: у бою — 4 (близько 50 блоків), вісник у звичайному світі вдвічі більший (близько 100). */
     public static final float SCALE = 4.0F;
-    static final int IDLE = 0, MOVE = 1, BITE_WARN = 2, BITE = 3, TAIL_WARN = 4, TAIL = 5, SUMMON = 6, BURROW = 7, EMERGE = 8, DEATH = 9;
-    private static final String[] ANIMS = {"idle", "move", "idle", "attack_bite", "idle", "attack_tail", "summon", "burrow", "emerge", "death"};
+    static final int IDLE = 0, MOVE = 1, BITE_WARN = 2, BITE = 3, TAIL_WARN = 4, TAIL = 5, SUMMON = 6, BURROW = 7, EMERGE = 8, DEATH = 9,
+            REAR = 10, SCREAM = 11;
+    private static final String[] ANIMS = {"idle", "move", "idle", "attack_bite", "idle", "attack_tail", "summon", "burrow", "emerge", "death",
+            "rear_hold", "rear_scream"};
     private static final EntityDataAccessor<Integer> STATE = SynchedEntityData.defineId(FleshBoss.class, EntityDataSerializers.INT);
     private static final EntityDataAccessor<Boolean> HERALD = SynchedEntityData.defineId(FleshBoss.class, EntityDataSerializers.BOOLEAN);
 
@@ -581,7 +583,8 @@ public class FleshBoss extends Monster implements GeoEntity {
             FleshDim.sound(level, BlockPos.containing(head), "minecraft:block.rooted_dirt.break", 8.0F, 0.5F);
             FleshDim.sound(level, BlockPos.containing(head), "minecraft:entity.ravager.step", 8.0F, 0.5F);
         }
-        if (stateTicks == 4 || stateTicks == 26) gnaw(level, head, mouth);
+        // яма в землі там, де проходить паща: і коли виринає, і коли закопується
+        if (stateTicks == 4 || stateTicks == 16 || stateTicks == 30 || stateTicks == 44) gnaw(level, head, mouth);
     }
 
     /** Прогризена яма завширшки з пащу там, де голова пробиває землю (без блоків із вмістом, рідин і порталів). */
@@ -677,15 +680,22 @@ public class FleshBoss extends Monster implements GeoEntity {
     private void heraldTick(ServerLevel level) {
         int s = state();
         long now = level.getGameTime();
-        if (s == EMERGE && stateTicks >= 48) {
-            int opened = 0;
-            for (int i = 0; i < 3; i++) {
-                if (FleshRifts.open(level, blockPosition(), 30, 60, "вісник", heraldEnd) != null) opened++;
+        if (s == EMERGE) {
+            if (stateTicks >= 48) {
+                // виринув: розломи відкриваються між ним і гравцем, а сам він стає на хвіст
+                Player near = level.getNearestPlayer(this, 200.0D);
+                BlockPos toward = near == null ? blockPosition()
+                        : BlockPos.containing((getX() + near.getX()) / 2.0D, getY(), (getZ() + near.getZ()) / 2.0D);
+                int opened = 0;
+                for (int i = 0; i < 3; i++) {
+                    BlockPos r = FleshRifts.open(level, toward, 6, 28, "вісник", heraldEnd, true);
+                    if (r == null) r = FleshRifts.open(level, blockPosition(), 20, 50, "вісник", heraldEnd, true);
+                    if (r != null) opened++;
+                }
+                riftsOpened = opened;
+                FleshSpread.LOGGER.info("Вісник (Утроба) виринув на {} і став на хвіст, розломів відкрито: {}", blockPosition().toShortString(), opened);
+                state(REAR);
             }
-            riftsOpened = opened;
-            FleshSpread.LOGGER.info("Вісник (Утроба) виринув на {}, розломів відкрито: {}", blockPosition().toShortString(), opened);
-            state(SUMMON); // одразу стає на хвіст
-            scream(level, false);
             return;
         }
         if (s == BURROW) {
@@ -695,15 +705,13 @@ public class FleshBoss extends Monster implements GeoEntity {
             }
             return;
         }
-        if (s != SUMMON) {
-            state(SUMMON);
+        if (s != REAR && s != SCREAM) {
+            state(REAR);
             return;
         }
-        Player near = level.getNearestPlayer(this, 160.0D);
-        if (near != null) face(near.position(), 1.5F);
         // плоть розповзається, інкубаторів не більше двох
-        if (stateTicks % 10 == 0) Nests.creep(level, blockPosition(), 30, 16);
-        if (nests < 2 && stateTicks % 300 == 150) {
+        if (tickCount % 10 == 0) Nests.creep(level, blockPosition(), 30, 16);
+        if (nests < 2 && tickCount % 300 == 150) {
             EntityType<?> big = Nests.big();
             BlockPos at = big == null ? null : Nests.findSurface(level, (int) (getX() + (random.nextDouble() - 0.5D) * 40.0D),
                     (int) (getZ() + (random.nextDouble() - 0.5D) * 40.0D));
@@ -713,14 +721,24 @@ public class FleshBoss extends Monster implements GeoEntity {
                 FleshSpread.LOGGER.info("Вісник виростив інкубатор {} на {}", nests, at.toShortString());
             }
         }
-        if (stateTicks % 240 == 120) {
-            scream(level, false);
-            FleshRifts.pour(level, blockPosition(), 80.0D);
+        if (s == SCREAM) {
+            // крик: екран червоніє, і лише тоді з розломів виходять заражені
+            if (stateTicks == 8) {
+                scream(level, false);
+                FleshRifts.pour(level, blockPosition(), 120.0D);
+            }
+            if (stateTicks >= 32) state(REAR);
+            return;
+        }
+        // стоїть на хвості; перший крик — щойно розломи розкриються, далі кожні 12 с
+        if (stateTicks == 45 || (stateTicks > 45 && (stateTicks - 45) % 240 == 0)) {
+            state(SCREAM);
+            return;
         }
         // час минув або всі розломи вже затягнулися — закопується
-        boolean riftsGone = riftsOpened > 0 && stateTicks > 100 && FleshRifts.openNear(level, blockPosition(), 90.0D) == 0;
+        boolean riftsGone = riftsOpened > 0 && stateTicks > 100 && FleshRifts.openNear(level, blockPosition(), 120.0D) == 0;
         if (now >= heraldEnd || riftsGone) {
-            FleshRifts.closeNear(level, blockPosition(), 80.0D);
+            FleshRifts.closeNear(level, blockPosition(), 120.0D);
             FleshSpread.LOGGER.info("Вісник закопується на {} ({})", blockPosition().toShortString(), riftsGone ? "розломи затягнулися" : "час минув");
             state(BURROW);
             FleshDim.sound(level, blockPosition(), "flesh_that_hates:entity.incubator.grow", 8.0F, 0.5F);
@@ -774,8 +792,8 @@ public class FleshBoss extends Monster implements GeoEntity {
         controllers.add(new AnimationController<>(this, "main", 4, st -> {
             int s = Mth.clamp(state(), 0, ANIMS.length - 1);
             String name = "animation.flesh_heart_boss." + ANIMS[s];
-            RawAnimation anim = s == IDLE || s == MOVE || s == BITE_WARN || s == TAIL_WARN ? RawAnimation.begin().thenLoop(name)
-                    : s == BURROW || s == DEATH || (s == SUMMON && this.entityData.get(HERALD)) ? RawAnimation.begin().thenPlayAndHold(name)
+            RawAnimation anim = s == IDLE || s == MOVE || s == BITE_WARN || s == TAIL_WARN || s == REAR ? RawAnimation.begin().thenLoop(name)
+                    : s == BURROW || s == DEATH || s == SCREAM ? RawAnimation.begin().thenPlayAndHold(name)
                     : RawAnimation.begin().thenPlay(name);
             return st.setAndContinue(anim);
         }));

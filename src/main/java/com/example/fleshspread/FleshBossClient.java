@@ -42,6 +42,16 @@ public final class FleshBossClient {
             this.withScale(FleshBoss.SCALE);
         }
 
+        /** Вісник удвічі більший за бійця. */
+        @Override
+        public void render(FleshBoss boss, float yaw, float partialTick, com.mojang.blaze3d.vertex.PoseStack pose,
+                net.minecraft.client.renderer.MultiBufferSource buffers, int light) {
+            float s = FleshBoss.SCALE * boss.k();
+            this.scaleWidth = s;
+            this.scaleHeight = s;
+            super.render(boss, yaw, partialTick, pose, buffers, light);
+        }
+
         @Override
         public boolean shouldRender(FleshBoss boss, net.minecraft.client.renderer.culling.Frustum frustum, double x, double y, double z) {
             return true; // 50 блоків завдовжки: звичайне відсікання за хітбоксом ховало б його

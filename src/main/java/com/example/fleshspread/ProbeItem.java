@@ -68,7 +68,7 @@ public class ProbeItem extends Item {
                     ? "Інфекцію вже переможено" : "Вісник: немає місця або він уже поруч";
         } else if (m == 10) {
             if (FleshBoss.near(sl, sp.blockPosition(), 150.0D).isEmpty()) {
-                FleshDim.startFight(sl, sp.blockPosition(), 70, "зонд, " + sp.getName().getString());
+                FleshDim.startFight(sl, sp.blockPosition(), 60, "зонд, " + sp.getName().getString());
                 msg = "Бій з Утробою почато (у креативі вона вас не бачить)";
             } else {
                 msg = "Утроба вже поруч";

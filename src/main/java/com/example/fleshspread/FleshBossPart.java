@@ -12,10 +12,15 @@ import net.minecraftforge.entity.PartEntity;
 
 /** Частина тіла Утроби (голова, сегменти, хвіст): окремий хітбокс, шкода передається самому босові. */
 public class FleshBossPart extends PartEntity<FleshBoss> {
-    private final EntityDimensions size;
+    private EntityDimensions size;
 
     public FleshBossPart(FleshBoss parent, float width, float height) {
         super(parent);
+        this.size = EntityDimensions.scalable(width, height);
+        this.refreshDimensions();
+    }
+
+    void resize(float width, float height) {
         this.size = EntityDimensions.scalable(width, height);
         this.refreshDimensions();
     }

@@ -197,34 +197,69 @@ public final class FleshRifts {
      */
     public static BlockPos herald(ServerLevel level, BlockPos around, String why) {
         if (FleshDim.isFlesh(level) || FleshData.defeated(level.getServer())) return null;
-        if (!FleshBoss.near(level, around, 200.0D).isEmpty()) return null;
-        SpreadConfig cfg = SpreadConfig.get();
-        for (int attempt = 0; attempt < 16; attempt++) {
-            double ang = level.random.nextDouble() * Math.PI * 2.0D;
-            double dist = cfg.heraldDistanceMin + level.random.nextDouble() * Math.max(1, cfg.heraldDistanceMax - cfg.heraldDistanceMin);
-            BlockPos s = Nests.findSurface(level, (int) (around.getX() + Math.cos(ang) * dist), (int) (around.getZ() + Math.sin(ang) * dist));
-            if (s == null) continue;
-            if (RaidTargets.nearVillage(level.getServer(), s, cfg.heraldVillageDistance)) {
-                FleshSpread.LOGGER.info("Вісник: місце {} надто близько до поселення, шукаю інше", s.toShortString());
-                continue;
-            }
-            FleshBoss boss = FleshDim.BOSS.get().create(level);
-            if (boss == null) return null;
-            // обличчям до гравця
-            float yaw = (float) (Math.toDegrees(Math.atan2(around.getZ() - s.getZ(), around.getX() - s.getX())) - 90.0D);
-            boss.moveTo(s.getX() + 0.5D, s.getY(), s.getZ() + 0.5D, yaw, 0.0F);
-            boss.makeHerald(Math.max(20, cfg.riftLifetimeSeconds) * 20);
-            level.addFreshEntity(boss);
-            FleshDim.sound(level, s, "flesh_that_hates:entity.call", 10.0F, 0.45F);
-            Component msg = Component.literal("☣ Земля здригається: Утроба виринає поруч (" + s.getX() + ", " + s.getY() + ", " + s.getZ() + ").")
-                    .withStyle(ChatFormatting.DARK_RED);
-            for (ServerPlayer p : level.players()) {
-                if (p.distanceToSqr(s.getX(), s.getY(), s.getZ()) < 160.0D * 160.0D) p.sendSystemMessage(msg);
-            }
-            FleshSpread.LOGGER.info("Вісник: Утроба виринає на {} ({}), триватиме {} с", s.toShortString(), why, cfg.riftLifetimeSeconds);
-            return s;
+        if (!FleshBoss.near(level, around, 200.0D).isEmpty()) {
+            FleshSpread.LOGGER.info("Вісник: Утроба вже поруч ({})", why);
+            return null;
         }
-        FleshSpread.LOGGER.info("Вісник: не знайшлося місця біля {} ({})", around.toShortString(), why);
+        SpreadConfig cfg = SpreadConfig.get();
+        Spot spot = findHeraldSpot(level, around, cfg);
+        if (spot == null) {
+            FleshSpread.LOGGER.info("Вісник: біля {} немає місця ні на якій відстані ({})", around.toShortString(), why);
+            return null;
+        }
+        BlockPos s = spot.pos();
+        FleshBoss boss = FleshDim.BOSS.get().create(level);
+        if (boss == null) return null;
+        boss.moveTo(s.getX() + 0.5D, s.getY(), s.getZ() + 0.5D, spot.yaw(), 0.0F);
+        boss.makeHerald(Math.max(20, cfg.riftLifetimeSeconds) * 20);
+        level.addFreshEntity(boss);
+        FleshDim.sound(level, s, "flesh_that_hates:entity.call", 10.0F, 0.45F);
+        Component msg = Component.literal("☣ Земля здригається: Утроба виринає поруч (" + s.getX() + ", " + s.getY() + ", " + s.getZ() + ").")
+                .withStyle(ChatFormatting.DARK_RED);
+        for (ServerPlayer p : level.players()) {
+            if (p.distanceToSqr(s.getX(), s.getY(), s.getZ()) < 160.0D * 160.0D) p.sendSystemMessage(msg);
+        }
+        FleshSpread.LOGGER.info("Вісник: Утроба виринає на {} ({} блоків від {}, перевірено місць {}) ({}), триватиме {} с",
+                s.toShortString(), (int) Math.sqrt(s.distSqr(around)), around.toShortString(), spot.checked(), why, cfg.riftLifetimeSeconds);
+        return s;
+    }
+
+    private record Spot(BlockPos pos, float yaw, int checked) {}
+
+    /**
+     * Шукає місце сам: кільця від ближнього до дальнього, по 24 напрямки на кільце. Місце годиться, якщо там є суха
+     * поверхня в завантажених чанках, а голова, середина й хвіст (вісник ~100 блоків завдовжки) далеко від сіл.
+     */
+    private static Spot findHeraldSpot(ServerLevel level, BlockPos around, SpreadConfig cfg) {
+        int min = Math.max(24, Math.min(cfg.heraldDistanceMin, cfg.heraldDistanceMax));
+        int max = Math.max(min, Math.max(cfg.heraldDistanceMin, cfg.heraldDistanceMax));
+        double village = cfg.heraldVillageDistance;
+        int checked = 0;
+        double start = level.random.nextDouble() * Math.PI * 2.0D;
+        for (int dist = min; dist <= max + 40; dist += 8) {
+            for (int i = 0; i < 24; i++) {
+                double ang = start + i * Math.PI * 2.0D / 24.0D;
+                int x = (int) Math.floor(around.getX() + Math.cos(ang) * dist);
+                int z = (int) Math.floor(around.getZ() + Math.sin(ang) * dist);
+                checked++;
+                BlockPos at = new BlockPos(x, around.getY(), z);
+                if (!level.hasChunkAt(at) || !level.isPositionEntityTicking(at)) continue;
+                BlockPos s = Nests.findSurface(level, x, z);
+                if (s == null || !level.getFluidState(s).isEmpty() || !level.getFluidState(s.below()).isEmpty()) continue;
+                // обличчям до гравця; тіло тягнеться назад, від гравця
+                float yaw = (float) (Math.toDegrees(Math.atan2(around.getZ() - z, around.getX() - x)) - 90.0D);
+                double bx = -Math.sin(Math.toRadians(yaw)), bz = Math.cos(Math.toRadians(yaw));
+                boolean clear = true;
+                for (double along : new double[]{42.0D, 0.0D, -60.0D}) {
+                    BlockPos q = BlockPos.containing(x + bx * along, s.getY(), z + bz * along);
+                    if (RaidTargets.nearVillage(level.getServer(), q, village)) {
+                        clear = false;
+                        break;
+                    }
+                }
+                if (clear) return new Spot(s, yaw, checked);
+            }
+        }
         return null;
     }
 

@@ -104,9 +104,9 @@ public final class SpreadConfig {
     public int riftLifetimeSeconds = 75;          // ...але ненадовго
     public int riftDistanceMin = 16;              // відстань від гравця
     public int riftDistanceMax = 40;
-    public int heraldDistanceMin = 70;            // Утроба-вісник виринає на такій відстані від гравця (вона ~100 блоків завдовжки)
-    public int heraldDistanceMax = 110;
-    public int heraldVillageDistance = 110;       // і не ближче до центру поселення Recruits Villages
+    public int heraldDistanceMin = 48;            // Утроба-вісник виринає на такій відстані від гравця (шукає місце сам, від ближнього)
+    public int heraldDistanceMax = 88;
+    public int heraldVillageDistance = 56;        // голова, середина й хвіст — не ближче до центру поселення Recruits Villages
     public int riftMobs = 3;                      // скільки заражених виходить із розлому
 
     private static SpreadConfig instance = new SpreadConfig();

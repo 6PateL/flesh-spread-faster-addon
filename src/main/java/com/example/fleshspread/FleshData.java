@@ -20,6 +20,7 @@ public class FleshData extends SavedData {
     public BlockPos heart;       // де стоїть Серце плоті
     public int lairStage = -1;   // крок будівництва печери (-1 = не починали)
     public boolean lairDone;
+    public int lairVersion;
     public boolean defeated;     // лише в даних звичайного світу: інфекцію переможено
     public final List<BlockPos> arrivals = new ArrayList<>();
 
@@ -43,6 +44,7 @@ public class FleshData extends SavedData {
         if (tag.contains("heart")) d.heart = BlockPos.of(tag.getLong("heart"));
         d.lairStage = tag.contains("lairStage") ? tag.getInt("lairStage") : -1;
         d.lairDone = tag.getBoolean("lairDone");
+        d.lairVersion = tag.getInt("lairVersion");
         d.defeated = tag.getBoolean("defeated");
         for (long l : tag.getLongArray("arrivals")) d.arrivals.add(BlockPos.of(l));
         return d;
@@ -55,6 +57,7 @@ public class FleshData extends SavedData {
         if (heart != null) tag.putLong("heart", heart.asLong());
         tag.putInt("lairStage", lairStage);
         tag.putBoolean("lairDone", lairDone);
+        tag.putInt("lairVersion", lairVersion);
         tag.putBoolean("defeated", defeated);
         long[] a = new long[arrivals.size()];
         for (int i = 0; i < a.length; i++) a[i] = arrivals.get(i).asLong();

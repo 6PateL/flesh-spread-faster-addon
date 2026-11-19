@@ -693,9 +693,22 @@ public final class FleshDim {
         return null;
     }
 
+    /**
+     * Хто не має права бути у вимірі плоті: жителі, големи, тварини, а також «дикі» рекрути (патрулі мода Recruits, що
+     * з'являються самі). Пускаємо лише тих, кого привели через портал або прислали села (тег fs_guest), і рекрутів гравців.
+     */
     private static boolean foreign(Entity e) {
-        if (e.getPersistentData().getBoolean("fs_guest") || e.isVehicle()) return false; // привели з собою через портал
+        if (e.getPersistentData().getBoolean("fs_guest")) return false;
+        if (e.getClass().getName().startsWith("com.talhanation.recruits.")) return !owned(e);
         return e instanceof AbstractVillager || e instanceof IronGolem || (e instanceof Animal && !isInfected(e));
+    }
+
+    private static boolean owned(Entity e) {
+        try {
+            return e.getClass().getMethod("getOwnerUUID").invoke(e) != null;
+        } catch (Throwable t) {
+            return false;
+        }
     }
 
     /** Покинуті села: ні жителів, ні големів, ні котів чи худоби. Замість жителів селом ходять заражені. */
@@ -710,9 +723,22 @@ public final class FleshDim {
         }
         if (!foreign(e)) return;
         event.setCanceled(true);
+        if (e.getClass().getName().startsWith("com.talhanation.recruits.") && level0Log(e)) {
+            FleshSpread.LOGGER.info("Вимір плоті: не пущено чужого рекрута {} на {} (патруль без власника)", e.getType().toShortString(),
+                    e.blockPosition().toShortString());
+        }
         if (e instanceof AbstractVillager && MOBS.size() < 400) {
             MOBS.add(new PendingMob(e.blockPosition(), e.level().random.nextInt(5) == 0 ? "infected_pillager" : "scp_6101"));
         }
+    }
+
+    private static long lastForeignLog;
+
+    private static boolean level0Log(Entity e) {
+        long t = e.level().getGameTime();
+        if (t - lastForeignLog < 200L && t >= lastForeignLog) return false;
+        lastForeignLog = t;
+        return true;
     }
 
     // ================================================================== життя виміру
@@ -787,6 +813,18 @@ public final class FleshDim {
                     FleshSpread.LOGGER.info("Вимір плоті: починаю будувати лігво Утроби біля входу {}", data.boss.toShortString());
                 }
             }
+            if (data.lairDone && data.heart != null && t % 10L == 0L && level.getBlockState(data.heart).is(HEART.get())
+                    && p.distanceToSqr(data.heart.getX(), data.heart.getY(), data.heart.getZ()) < 140.0D * 140.0D) {
+                // стовп кривавого світла над Серцем, видно через усю арену
+                net.minecraft.core.particles.DustParticleOptions blood = new net.minecraft.core.particles.DustParticleOptions(
+                        new org.joml.Vector3f(0.85F, 0.05F, 0.05F), 2.5F);
+                for (int i = 0; i < 30; i++) {
+                    level.sendParticles(p, blood, true, data.heart.getX() + 0.5D, data.heart.getY() + 1.0D + i, data.heart.getZ() + 0.5D,
+                            2, 0.25D, 0.4D, 0.25D, 0.0D);
+                }
+                level.sendParticles(p, net.minecraft.core.particles.ParticleTypes.CRIMSON_SPORE, true, data.heart.getX() + 0.5D,
+                        data.heart.getY() + 1.5D, data.heart.getZ() + 0.5D, 20, 3.0D, 2.0D, 3.0D, 0.02D);
+            }
             if (data.lairDone && d2 < 20.0D * 20.0D && !p.getPersistentData().getBoolean("fs_lair_seen")) {
                 p.getPersistentData().putBoolean("fs_lair_seen", true);
                 sound(level, data.boss, "flesh_that_hates:entity.call", 6.0F, 0.4F);
@@ -799,11 +837,34 @@ public final class FleshDim {
 
     // ================================================================== лігво: печера-арена під землею
 
-    static final int LAIR_RADIUS = 72, LAIR_HEIGHT = 44, LAIR_OFFSET = 50;
+    static final int LAIR_RADIUS = 60, LAIR_HEIGHT = 36, LAIR_OFFSET = 42, LAIR_VERSION = 2, SHELL = 4;
 
     /** Будує лігво поступово (по шару за тик), щоб не підвішувати сервер. Викликається щотику у вимірі плоті. */
+    /** Радіус порожнини на висоті dy над підлогою (купол). */
+    private static int cavity(int dy) {
+        if (dy < 0 || dy > LAIR_HEIGHT) return -1;
+        double h = dy / (double) LAIR_HEIGHT;
+        return (int) Math.round(LAIR_RADIUS * Math.sqrt(Math.max(0.0D, 1.0D - h * h * 0.85D)));
+    }
+
+    private static boolean inCavity(BlockPos c, BlockPos p) {
+        int r = cavity(p.getY() - c.getY());
+        if (r < 0) return false;
+        double dx = p.getX() - c.getX(), dz = p.getZ() - c.getZ();
+        return dx * dx + dz * dz <= r * r;
+    }
+
     private static void lairStep(ServerLevel level) {
         FleshData data = FleshData.get(level);
+        if (data.boss != null && data.lairDone && data.lairVersion < LAIR_VERSION) {
+            // старе лігво (без купола, затоплене): будуємо наново
+            FleshSpread.LOGGER.info("Вимір плоті: лігво старої версії {} — перебудовую з куполом", data.lairVersion);
+            data.lairDone = false;
+            data.lairStage = 0;
+            data.center = null;
+            data.heart = null;
+            data.setDirty();
+        }
         if (data.boss == null || data.lairDone || data.lairStage < 0) return;
         Block rot = fth("rotting_flesh_block");
         Block log = fth("flesh_log");
@@ -821,15 +882,19 @@ public final class FleshDim {
         int stage = data.lairStage++;
         data.setDirty();
         int R = LAIR_RADIUS;
-        if (stage <= LAIR_HEIGHT + 1) {
-            // шари знизу вгору: два шари підлоги, далі купол
-            int dy = stage - 2;
-            double k = dy < 0 ? 1.0D : Math.sqrt(Math.max(0.0D, 1.0D - (dy / (double) LAIR_HEIGHT) * (dy / (double) LAIR_HEIGHT) * 0.85D));
-            int r = (int) Math.round(R * k);
-            for (int dx = -r; dx <= r; dx++) {
-                for (int dz = -r; dz <= r; dz++) {
-                    if (dx * dx + dz * dz > r * r) continue;
-                    level.setBlock(c.offset(dx, dy, dz), dy < 0 ? floor : air, 2);
+        if (stage <= LAIR_HEIGHT + 4) {
+            // шари знизу вгору: три шари підлоги, порожнина-купол, навколо неї суцільна оболонка з плоті (щоб не залило
+            // водою чи лавою з печер), зверху — дах
+            int dy = stage - 3;
+            int r = cavity(dy);
+            int outer = (dy < 0 ? R : Math.max(r, cavity(Math.min(dy, LAIR_HEIGHT)))) + SHELL;
+            if (dy > LAIR_HEIGHT) outer = cavity(LAIR_HEIGHT) + SHELL + 2;
+            for (int dx = -outer; dx <= outer; dx++) {
+                for (int dz = -outer; dz <= outer; dz++) {
+                    int d2 = dx * dx + dz * dz;
+                    if (d2 > outer * outer) continue;
+                    BlockPos q = c.offset(dx, dy, dz);
+                    level.setBlock(q, r >= 0 && d2 <= r * r ? air : floor, 2);
                 }
             }
             return;
@@ -847,11 +912,36 @@ public final class FleshDim {
             int rr = i % 2 == 0 ? 14 : 30;
             level.setBlock(c.offset((int) Math.round(Math.cos(ang) * rr), -1, (int) Math.round(Math.sin(ang) * rr)), Blocks.SHROOMLIGHT.defaultBlockState(), 2);
         }
-        // п'єдестал із Серцем плоті в центрі
-        for (int dx = -1; dx <= 1; dx++) {
-            for (int dz = -1; dz <= 1; dz++) level.setBlock(c.offset(dx, 0, dz), FRAME.get().defaultBlockState(), 2);
+        // п'єдестал із Серцем плоті в центрі: ступінчаста піраміда, чотири обеліски і світло довкола
+        BlockState flesh = fth("flesh_block") != null ? fth("flesh_block").defaultBlockState() : FRAME.get().defaultBlockState();
+        int[] steps = {8, 6, 4, 2};
+        BlockState[] stepBlock = {floor, flesh, FRAME.get().defaultBlockState(), FRAME.get().defaultBlockState()};
+        for (int lvl = 0; lvl < steps.length; lvl++) {
+            int sr = steps[lvl];
+            for (int dx = -sr; dx <= sr; dx++) {
+                for (int dz = -sr; dz <= sr; dz++) {
+                    if (dx * dx + dz * dz <= sr * sr + sr) level.setBlock(c.offset(dx, lvl, dz), stepBlock[lvl], 2);
+                }
+            }
         }
-        data.heart = c.above();
+        for (int i = 0; i < 4; i++) {
+            double ang = i * Math.PI / 2.0D + Math.PI / 4.0D;
+            int px = (int) Math.round(Math.cos(ang) * 12.0D), pz = (int) Math.round(Math.sin(ang) * 12.0D);
+            for (int dy = 0; dy < 16; dy++) {
+                for (int ox = 0; ox <= 1; ox++) {
+                    for (int oz = 0; oz <= 1; oz++) level.setBlock(c.offset(px + ox, dy, pz + oz), dy % 5 == 4 ? FRAME.get().defaultBlockState() : pillar, 2);
+                }
+            }
+            for (int ox = 0; ox <= 1; ox++) {
+                for (int oz = 0; oz <= 1; oz++) level.setBlock(c.offset(px + ox, 16, pz + oz), Blocks.SHROOMLIGHT.defaultBlockState(), 2);
+            }
+        }
+        for (int i = 0; i < 32; i++) {
+            double ang = i * Math.PI / 16.0D;
+            level.setBlock(c.offset((int) Math.round(Math.cos(ang) * 10.0D), -1, (int) Math.round(Math.sin(ang) * 10.0D)),
+                    Blocks.SHROOMLIGHT.defaultBlockState(), 2);
+        }
+        data.heart = c.above(steps.length);
         level.setBlock(data.heart, HEART.get().defaultBlockState(), 3);
         // вхід: шахта з поверхні, у ній колона з драбинами з чотирьох боків
         BlockPos e = new BlockPos(c.getX() + LAIR_OFFSET, c.getY(), c.getZ());
@@ -862,6 +952,15 @@ public final class FleshDim {
                     if (dx * dx + dz * dz > 10) continue;
                     BlockPos q = new BlockPos(e.getX() + dx, y, e.getZ() + dz);
                     level.setBlock(q, dx == 0 && dz == 0 ? pillar : air, 2);
+                }
+            }
+            // стінки шахти з плоті там, де вона йде крізь землю (щоб не текла вода)
+            for (int dx = -4; dx <= 4; dx++) {
+                for (int dz = -4; dz <= 4; dz++) {
+                    int d2 = dx * dx + dz * dz;
+                    if (d2 <= 10 || d2 > 20) continue;
+                    BlockPos q = new BlockPos(e.getX() + dx, y, e.getZ() + dz);
+                    if (!inCavity(c, q) && y < top - 1) level.setBlock(q, floor, 2);
                 }
             }
             for (Direction d : new Direction[]{Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST}) {
@@ -885,6 +984,7 @@ public final class FleshDim {
             }
         }
         data.lairDone = true;
+        data.lairVersion = LAIR_VERSION;
         data.setDirty();
         FleshSpread.LOGGER.info("Вимір плоті: лігво Утроби готове — вхід {}, арена {} (радіус {}), Серце плоті {}", data.boss.toShortString(),
                 c.toShortString(), R, data.heart.toShortString());

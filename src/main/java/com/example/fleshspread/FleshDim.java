@@ -1,6 +1,7 @@
 package com.example.fleshspread;
 
 import net.minecraft.ChatFormatting;
+import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.registries.Registries;
@@ -432,16 +433,119 @@ public final class FleshDim {
      */
     private static List<Entity> squad(ServerLevel level, ServerPlayer player) {
         List<Entity> out = new ArrayList<>();
-        for (Entity e : level.getEntities(player, player.getBoundingBox().inflate(24.0D, 10.0D, 24.0D),
-                x -> x.isAlive() && x.getClass().getName().startsWith("com.talhanation.recruits."))) {
-            try {
-                Object owner = e.getClass().getMethod("getOwnerUUID").invoke(e);
-                if (player.getUUID().equals(owner) && out.size() < 60) out.add(e);
-            } catch (Throwable ignored) {
-                // не рекрут або інша версія моду
+        for (Entity e : level.getEntities(player, player.getBoundingBox().inflate(24.0D, 10.0D, 24.0D), Entity::isAlive)) {
+            if (out.size() >= 80) break;
+            if (e.getClass().getName().startsWith("com.talhanation.recruits.")) {
+                try {
+                    Object owner = e.getClass().getMethod("getOwnerUUID").invoke(e);
+                    if (player.getUUID().equals(owner)) out.add(e);
+                } catch (Throwable ignored) {
+                    // не рекрут або інша версія моду
+                }
+                continue;
             }
+            net.minecraft.nbt.CompoundTag d = e.getPersistentData();
+            // жителі гравця з Train Recruits: рота забезпечення, розрахунки гармат, піхота, що йде за ним; і големи роти
+            if (ownedBy(d, "tr_s_owner", player) || ownedBy(d, "tr_g_owner", player) || ownedBy(d, "trainrecruits_follow_owner", player)
+                    || ownedBy(d, "tr_s_golem", player)) {
+                out.add(e);
+                continue;
+            }
+            // кого гравець тягне на повідку — теж іде (і в плоті не виживе)
+            if (e instanceof Mob m && m.getLeashHolder() == player) out.add(e);
         }
         return out;
+    }
+
+    private static boolean ownedBy(net.minecraft.nbt.CompoundTag d, String key, ServerPlayer player) {
+        return d.hasUUID(key) && d.getUUID(key).equals(player.getUUID());
+    }
+
+    // ================================================================== хто виживає у плоті
+
+    private static final String[] STEAM_SET = {"steam_helmet", "steam_chestplate", "steam_leggings", "steam_boots"};
+    private static final net.minecraft.world.entity.EquipmentSlot[] SET_SLOTS = {net.minecraft.world.entity.EquipmentSlot.HEAD,
+            net.minecraft.world.entity.EquipmentSlot.CHEST, net.minecraft.world.entity.EquipmentSlot.LEGS, net.minecraft.world.entity.EquipmentSlot.FEET};
+    /** Приречені: UUID → тік, коли перетвориться. */
+    private static final Map<UUID, Long> DOOM = new HashMap<>();
+
+    /**
+     * Плоть вбиває і перетворює на вірус усіх, крім: гравців, големів, рекрутів (піхота), жителів Train Recruits (рота
+     * забезпечення в паровій броні, розрахунки, піхота) і тих, хто в повному паровому обладунку (Create: Steam Armor).
+     */
+    static boolean doomed(Entity e) {
+        if (!(e instanceof net.minecraft.world.entity.LivingEntity le) || e instanceof Player
+                || e instanceof net.minecraft.world.entity.decoration.ArmorStand || e instanceof net.minecraft.world.entity.animal.AbstractGolem) {
+            return false;
+        }
+        String cls = e.getClass().getName();
+        if (cls.startsWith("com.talhanation.recruits.") || isInfected(e) || cls.startsWith("com.example.fleshspread.")) return false;
+        ResourceLocation type = ForgeRegistries.ENTITY_TYPES.getKey(e.getType());
+        if (type != null && (type.getNamespace().equals("flesh_that_hates") || type.getNamespace().equals(FleshSpread.MOD_ID))) return false;
+        net.minecraft.nbt.CompoundTag d = e.getPersistentData();
+        if (d.getBoolean("trainrecruits_supply") || d.getBoolean("trainrecruits_gunner") || d.getBoolean("trainrecruits_follow")) return false;
+        return !fullSteam(le);
+    }
+
+    private static boolean fullSteam(net.minecraft.world.entity.LivingEntity le) {
+        for (int i = 0; i < 4; i++) {
+            ResourceLocation id = ForgeRegistries.ITEMS.getKey(le.getItemBySlot(SET_SLOTS[i]).getItem());
+            if (id == null || !id.getNamespace().equals("createarmor") || !id.getPath().equals(STEAM_SET[i])) return false;
+        }
+        return true;
+    }
+
+    /** Почати перетворення: 3 секунди корчів (в'янення, нудота), далі смерть і на її місці — заражений. */
+    static void doom(ServerLevel level, Entity e) {
+        if (DOOM.containsKey(e.getUUID()) || !(e instanceof net.minecraft.world.entity.LivingEntity le)) return;
+        DOOM.put(e.getUUID(), level.getGameTime() + 60L);
+        le.addEffect(new net.minecraft.world.effect.MobEffectInstance(net.minecraft.world.effect.MobEffects.WITHER, 80, 1));
+        le.addEffect(new net.minecraft.world.effect.MobEffectInstance(net.minecraft.world.effect.MobEffects.CONFUSION, 80, 0));
+        le.addEffect(new net.minecraft.world.effect.MobEffectInstance(net.minecraft.world.effect.MobEffects.MOVEMENT_SLOWDOWN, 80, 3));
+        sound(level, e.blockPosition(), "flesh_that_hates:entity.call", 1.0F, 1.4F);
+        FleshSpread.LOGGER.info("Вимір плоті: {} без захисту — перетвориться на вірус", e.getType().toShortString());
+    }
+
+    private static void doomTick(ServerLevel level) {
+        if (DOOM.isEmpty()) return;
+        long t = level.getGameTime();
+        java.util.Iterator<Map.Entry<UUID, Long>> it = DOOM.entrySet().iterator();
+        while (it.hasNext()) {
+            Map.Entry<UUID, Long> en = it.next();
+            Entity e = level.getEntity(en.getKey());
+            if (e == null || !e.isAlive()) {
+                if (e == null && t > en.getValue() + 600L) it.remove();
+                if (e != null) it.remove();
+                continue;
+            }
+            if (t % 5L == 0L) {
+                level.sendParticles(ParticleTypes.CRIMSON_SPORE, e.getX(), e.getY() + e.getBbHeight() * 0.6D, e.getZ(), 6,
+                        e.getBbWidth() * 0.4D, e.getBbHeight() * 0.3D, e.getBbWidth() * 0.4D, 0.02D);
+                level.sendParticles(new net.minecraft.core.particles.BlockParticleOption(ParticleTypes.BLOCK,
+                        Blocks.NETHER_WART_BLOCK.defaultBlockState()), e.getX(), e.getY() + e.getBbHeight() * 0.5D, e.getZ(), 4,
+                        e.getBbWidth() * 0.3D, e.getBbHeight() * 0.3D, e.getBbWidth() * 0.3D, 0.05D);
+            }
+            if (t < en.getValue()) continue;
+            it.remove();
+            BlockPos pos = e.blockPosition();
+            boolean human = e instanceof AbstractVillager || e instanceof net.minecraft.world.entity.monster.AbstractIllager;
+            EntityType<?> type = null;
+            if (human) {
+                ResourceLocation id = new ResourceLocation("flesh_that_hates", level.random.nextInt(5) == 0 ? "infected_pillager" : "scp_6101");
+                if (ForgeRegistries.ENTITY_TYPES.containsKey(id)) type = ForgeRegistries.ENTITY_TYPES.getValue(id);
+            }
+            if (type == null) type = anyMob(level);
+            Component name = e.getDisplayName();
+            if (!e.hurt(level.damageSources().wither(), Float.MAX_VALUE) || e.isAlive()) e.kill();
+            level.sendParticles(ParticleTypes.EXPLOSION, pos.getX() + 0.5D, pos.getY() + 0.8D, pos.getZ() + 0.5D, 1, 0, 0, 0, 0);
+            sound(level, pos, "flesh_that_hates:entity.call", 1.6F, 0.6F);
+            if (type != null) type.spawn(level, pos, net.minecraft.world.entity.MobSpawnType.CONVERSION);
+            for (ServerPlayer p : level.players()) {
+                if (p.distanceToSqr(e) < 64.0D * 64.0D) {
+                    p.displayClientMessage(Component.literal(name.getString() + " не витримав плоті й став вірусом").withStyle(ChatFormatting.DARK_RED), true);
+                }
+            }
+        }
     }
 
     private static int moveSquad(List<Entity> squad, ServerLevel dest, BlockPos at) {
@@ -464,7 +568,10 @@ public final class FleshDim {
                         return false;
                     }
                 });
-                if (moved2 != null) moved++;
+                if (moved2 != null) {
+                    moved++;
+                    if (isFlesh(dest) && doomed(moved2)) doom(dest, moved2);
+                }
             } catch (Throwable t) {
                 FleshSpread.LOGGER.warn("Портал плоті: бійця не вдалося перевести: {}", t.toString());
             }
@@ -771,6 +878,7 @@ public final class FleshDim {
         long t = level.getGameTime();
         SpreadConfig cfg = SpreadConfig.get();
         lairStep(level);
+        doomTick(level);
         if (t % 200L == 0L) heartCheck(level);
 
         // руїни сіл: вибиті блоки прибираємо звичайним способом, щоб оновилося світло; скрині спорожнюємо
